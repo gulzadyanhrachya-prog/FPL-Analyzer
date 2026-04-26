@@ -27,8 +27,8 @@ def calc_ema(series, alpha=0.25):
         ema = alpha * val + (1 - alpha) * ema
     return ema
 
-def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, influence):
-    """Výpočet xPts pomocí Poissonova rozdělení pro nová pravidla 25/26"""
+def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, cbit, cbirt):
+    """Výpočet xPts pomocí Poissonova rozdělení a SUROVÝCH DAT (CBIT/CBIRT)"""
     if mins == 0: return 0.0
     p90 = mins / 90.0
     
@@ -37,21 +37,21 @@ def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, influence):
     xgc_90 = float(xgc) / p90
     cs_90 = float(cs) / p90
     saves_90 = float(saves) / p90
-    influence_90 = float(influence) / p90
+    
+    # Přepočet surových defenzivních akcí na 90 minut
+    cbit_90 = float(cbit) / p90
+    cbirt_90 = float(cbirt) / p90
 
     base_pts = 2.0 
     
-    # STOCHASTICKÉ MODELOVÁNÍ CBIT/CBIRT (Nová pravidla)
-    # Používáme 'Influence' jako proxy pro defenzivní akce, protože FPL API nedává surové skluzy
+    # STOCHASTICKÉ MODELOVÁNÍ CBIT/CBIRT (Nová pravidla 25/26)
     if pos == 'DEF':
-        expected_cbit = influence_90 * 0.35  # Odhad průměrného počtu akcí
-        # Poisson: Pravděpodobnost, že hráč dosáhne 10 a více akcí (sf = survival function)
-        p_cbit_bonus = poisson.sf(9, expected_cbit) 
+        # Poisson: Pravděpodobnost, že obránce dosáhne 10 a více akcí (CBIT)
+        p_cbit_bonus = poisson.sf(9, cbit_90) 
         def_bonus = p_cbit_bonus * 2.0
     else:
-        expected_cbirt = influence_90 * 0.40
-        # Poisson: Pravděpodobnost, že hráč dosáhne 12 a více akcí
-        p_cbirt_bonus = poisson.sf(11, expected_cbirt)
+        # Poisson: Pravděpodobnost, že záložník/útočník dosáhne 12 a více akcí (CBIRT)
+        p_cbirt_bonus = poisson.sf(11, cbirt_90)
         def_bonus = p_cbirt_bonus * 2.0
 
     # Finální výpočet podle pozice
@@ -98,7 +98,7 @@ def load_fpl_data():
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
     
-    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (EMA + Poisson) ---
+    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (EMA + Poisson + Surová data) ---
     active_players = df[df['minutes'] > 100]['id'].tolist()
     history_data = {}
     
@@ -120,19 +120,28 @@ def load_fpl_data():
         hist = history_data[pid]
         match_xpts = []
         
-        # Výpočet xPts pro každý odehraný zápas v historii hráče
+        # Výpočet xPts pro každý odehraný zápas s využitím SUROVÝCH DAT
         for m in hist:
             if m['minutes'] > 0:
+                # Extrakce surových dat z FPL API
+                cbi = m.get('clearances_blocks_interceptions', 0)
+                tackles = m.get('tackles', 0)
+                recoveries = m.get('recoveries', 0)
+                
+                # Výpočet našich nových metrik
+                cbit = cbi + tackles
+                cbirt = cbit + recoveries
+                
                 pts = calculate_advanced_xpts(
                     pos, m['minutes'], m['expected_goals'], m['expected_assists'], 
-                    m['expected_goals_conceded'], m['clean_sheets'], m['saves'], m['influence']
+                    m['expected_goals_conceded'], m['clean_sheets'], m['saves'], cbit, cbirt
                 )
                 match_xpts.append(pts)
         
         # Aplikace Exponenciálního klouzavého průměru (EMA)
         ema_form = calc_ema(match_xpts, alpha=0.25) if match_xpts else 0.0
         
-        # POA (Probability of Appearing) - Šance, že nastoupí do základu
+        # POA (Probability of Appearing)
         recent_5 = hist[-5:]
         starts = sum(1 for m in recent_5 if m['minutes'] > 45)
         poa = starts / 5.0 if len(recent_5) == 5 else (starts / len(recent_5) if len(recent_5) > 0 else 0)
@@ -279,6 +288,14 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
                 st.sidebar.error("❌ Nepodařilo se načíst tým.")
     else:
         st.sidebar.error("⚠️ ID musí obsahovat pouze čísla.")
+
+st.sidebar.divider()
+
+# --- NOVÉ TLAČÍTKO PRO VYNUCENÝ PŘEPOČET DAT ---
+st.sidebar.header("🔄 Správa dat")
+if st.sidebar.button("Vynutit přepočet surových dat (CBIT/CBIRT)"):
+    st.cache_data.clear() # Vymaže paměť a donutí aplikaci stáhnout vše znovu
+    st.rerun()
 
 st.sidebar.divider()
 
@@ -456,7 +473,8 @@ with tab3:
                     ]
                 }
                 """
-                extracted_data = json.loads(demo_json)['players']
+                extracted_data = json.loads(demo_json)['
+players']
                 st.session_state['nlp_modifiers'] = extracted_data
                 st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                 st.rerun()
