@@ -419,8 +419,8 @@ with tab1:
                                     if row['id'] == cap_id: role = " <span style='color: #FFD700;'>**(C)**</span>"
                                     elif row['id'] == vc_id: role = " *(VC)*"
                                     
-                                    health_icon = f" <
-span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                                    health_icon = f" <span title='{row['news']
+}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                                         
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
