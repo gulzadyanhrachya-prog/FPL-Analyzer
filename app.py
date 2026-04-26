@@ -236,7 +236,8 @@ def load_fpl_data():
 
     df['odds_goal'] = odds_goal
     df['odds_cs'] = odds_cs
-    df['odds_1gw_pts'] = odds_implied_pts
+    df['odds_1
+gw_pts'] = odds_implied_pts
     
     df['xG_90'] = pd.to_numeric(df['expected_goals'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
     df['xA_90'] = pd.to_numeric(df['expected_assists'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
@@ -611,9 +612,17 @@ with tab_league:
                                 }).sort_values(by="Vlastnictví v Top 10 (%)", ascending=False)
                                 
                                 st.dataframe(
-                                    eo_df.style.format({"Vlastnictví v Top 10 (%)": "{:.0f} %"})\
-                                    .background_gradient(cmap='Reds', subset=['Vlastnictví v Top 10 (%)']),
-                                    use_container_width=True, hide_index=True
+                                    eo_df,
+                                    use_container_width=True, 
+                                    hide_index=True,
+                                    column_config={
+                                        "Vlastnictví v Top 10 (%)": st.column_config.ProgressColumn(
+                                            "Vlastnictví v Top 10 (%)",
+                                            format="%d %%",
+                                            min_value=0,
+                                            max_value=100,
+                                        )
+                                    }
                                 )
                             else:
                                 st.warning("Nepodařilo se načíst týmy rivalů (možná probíhá aktualizace kola).")
@@ -740,7 +749,8 @@ with tab1:
                         
                     col_met1, col_met2, col_met3 = st.columns(3)
                     col_met1.metric("Zisk z přestupu (Celý tým na 5 kol)", f"+{new_squad_5gw_proj - current_squad_5gw_proj:.1f} bodů")
-                    col_met2.metric(pts_label, f"{expected_pts_display:.1f} bodů")
+                    col_met2.metric(pts_
+label, f"{expected_pts_display:.1f} bodů")
                     col_met3.metric("Zůstatek v bance", f"{total_budget - new_squad_df['now_cost'].sum():.1f} m")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
