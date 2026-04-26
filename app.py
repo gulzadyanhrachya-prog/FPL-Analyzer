@@ -856,8 +856,7 @@ with tab4:
                     cleaned_response = response.text.replace('```json', '').replace('```', '').strip()
                     extracted_data = json.loads(cleaned_response)['players']
                     
-                    if extracted
-_data:
+                    if extracted_data:
                         st.session_state['nlp_modifiers'] = extracted_data
                         st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                         st.rerun()
