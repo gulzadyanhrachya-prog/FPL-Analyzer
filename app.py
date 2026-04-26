@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import pulp
 import json
-from openai import OpenAI
+import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -325,10 +325,10 @@ with tab2:
     st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
-    st.header("🧠 AI Analýza tiskových konferencí")
+    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
     st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
     
-    api_key = st.text_input("Zadej svůj OpenAI API klíč (začíná na sk-...):", type="password", help="Pokud klíč nemáš, nech pole prázdné a vyzkoušej si Demo režim.")
+    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
     news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
@@ -349,22 +349,22 @@ with tab3:
                         """
                         extracted_data = json.loads(demo_json)['players']
                     else:
-                        client = OpenAI(api_key=api_key)
+                        # SKUTEČNÉ VOLÁNÍ GOOGLE GEMINI API (ZDARMA)
+                        genai.configure(api_key=api_key)
+                        
+                        # Využijeme model Gemini 1.5 Flash a vynutíme JSON výstup
+                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+                        
                         prompt = """
                         Jsi expert na Fantasy Premier League. Přečti si text.
                         Vrať POUZE validní JSON ve formátu:
                         {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
                         xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
                         """
-                        response = client.chat.completions.create(
-                            model="gpt-3.5-turbo",
-                            messages=[
-                                {"role": "system", "content": prompt},
-                                {"role": "user", "content": news_text}
-                            ],
-                            response_format={"type": "json_object"}
-                        )
-                        extracted_data = json.loads(response.choices[0].message.content)['players']
+                        
+                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
+
+                        extracted_data = json.loads(response.text)['players']
                     
                     st.session_state['nlp_modifiers'] = extracted_data
                     st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
