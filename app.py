@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import requests
 import pulp
+import json
+from openai import OpenAI
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -12,11 +14,12 @@ if 'my_team' not in st.session_state:
     st.session_state['my_team'] = []
 if 'bank' not in st.session_state:
     st.session_state['bank'] = 0.0
+if 'nlp_modifiers' not in st.session_state:
+    st.session_state['nlp_modifiers'] = []
 
 # --- 1. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
-    """Zjistí aktuální nebo poslední odehrané kolo (Gameweek)"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     for event in res['events']:
@@ -49,7 +52,6 @@ def load_fpl_data():
     team_fdr_5gw = {team_id: [] for team_id in teams_df['id']}
     team_fdr_1gw = {team_id: None for team_id in teams_df['id']}
     
-    # NOVÉ: Slovníky pro uložení textu zápasu (např. "ARS (H)") a jeho obtížnosti
     team_fixtures_str = {team_id: [] for team_id in teams_df['id']}
     team_fixtures_diff = {team_id: [] for team_id in teams_df['id']}
     
@@ -89,7 +91,6 @@ def load_fpl_data():
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw']
     df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw']
     
-    # NOVÉ: Přidání sloupců se zápasy do hlavního DataFrame
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
         df[f'Diff {i+1}'] = df['team'].apply(lambda x: team_fixtures_diff[x][i] if len(team_fixtures_diff[x]) > i else 3)
@@ -146,7 +147,15 @@ def get_best_xi(squad_df):
     
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
+# Načtení dat
 df = load_fpl_data()
+
+# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
+if st.session_state['nlp_modifiers']:
+    for mod in st.session_state['nlp_modifiers']:
+        idx = df['web_name'] == mod['web_name']
+        df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
 
 # --- 2. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
@@ -181,8 +190,15 @@ all_player_names = sorted(df['unique_name'].tolist())
 valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
 my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
+if st.session_state['nlp_modifiers']:
+    st.sidebar.divider()
+    st.sidebar.subheader("🏥 Aktivní AI hlášení")
+    for mod in st.session_state['nlp_modifiers']:
+        if mod['xMins_multiplier'] < 1.0:
+            st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
+
 # --- 3. HLAVNÍ OBSAH ---
-tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🎙️ AI Analýza zranění"])
+tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🧠 AI Analýza tiskovek"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -280,50 +296,79 @@ with tab1:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
 
 with tab2:
-    st.header("Kompletní databáze hráč a Fixture Ticker")
-    st.write("Tabulku můžeš libovolně řadit. Barevné sloupce ukazují náročnost dalších 5 zápasů.")
+    st.header("Kompletní databáze hráčů a Fixture Ticker")
     
-    # Příprava dat pro zobrazení
     display_df = df[['unique_name', 'position', 'now_cost', 'form', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
     display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
-    # Příprava skrytých dat o obtížnosti pro obarvení buněk
     diff_df = df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
-    # Funkce pro obarvení buněk podle FDR
     def style_fixtures(data, diffs):
         styles = pd.DataFrame('', index=data.index, columns=data.columns)
         for col in ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']:
             for idx in data.index:
                 val = diffs.loc[idx, col]
-                if val == 1: bg, text = '#006400', 'white'       # Tmavě zelená
-                elif val == 2: bg, text = '#2cba00', 'white'     # Zelená
-                elif val == 3: bg, text = '#a9a9a9', 'black'     # Šedá
-                elif val == 4: bg, text = '#ff4e11', 'white'     # Oranžovo-červená
-                elif val == 5: bg, text = '#8B0000', 'white'     # Tmavě červená
+                if val == 1: bg, text = '#006400', 'white'
+                elif val == 2: bg, text = '#2cba00', 'white'
+                elif val == 3: bg, text = '#a9a9a9', 'black'
+                elif val == 4: bg, text = '#ff4e11', 'white'
+                elif val == 5: bg, text = '#8B0000', 'white'
                 else: bg, text = '', ''
                 styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold;'
         return styles
 
-    # Aplikace stylů a formátování čísel
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
-        'Cena': "{:.1f}",
-        'Forma': "{:.1f}",
-        'Projekce (1 kolo)': "{:.1f}",
-        'Projekce (5 kol)': "{:.1f}"
+        'Cena': "{:.1f}", 'Forma': "{:.1f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
-    st.header("Zpracování tiskových konferencí (Demo)")
-    news_text = st.text_area("Text z tiskovky:", height=150, placeholder="Vlož text sem...")
-    if st.button("🧠 Analyzovat text pomocí LLM"):
-        if news_text:
-            st.info("AI analyzuje text...")
-            st.error("❌ Haaland - Zraněný (Projekce snížena na 0.0)")
-            st.warning("⚠️ Foden - Unavený (Projekce snížena o 75%)")
-            st.success("✅ De Bruyne - Plně zdráv (Projekce beze změny)")
-        else:
+    st.header("🧠 AI Analýza tiskových konferencí")
+    st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
+    
+    api_key = st.text_input("Zadej svůj OpenAI API klíč (začíná na sk-...):", type="password", help="Pokud klíč nemáš, nech pole prázdné a vyzkoušej si Demo režim.")
+    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
+    
+    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
+        if not news_text:
             st.warning("Nejprve vlož nějaký text.")
+        else:
+            with st.spinner("AI čte text a hledá zranění..."):
+                try:
+                    if api_key == "":
+                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
+                        demo_json = """
+                        {
+                            "players": [
+                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
+                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
+                            ]
+                        }
+                        """
+                        extracted_data = json.loads(demo_json)['players']
+                    else:
+                        client = OpenAI(api_key=api_key)
+                        prompt = """
+                        Jsi expert na Fantasy Premier League. Přečti si text.
+                        Vrať POUZE validní JSON ve formátu:
+                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
+                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
+                        """
+                        response = client.chat.completions.create(
+                            model="gpt-3.5-turbo",
+                            messages=[
+                                {"role": "system", "content": prompt},
+                                {"role": "user", "content": news_text}
+                            ],
+                            response_format={"type": "json_object"}
+                        )
+                        extracted_data = json.loads(response.choices[0].message.content)['players']
+                    
+                    st.session_state['nlp_modifiers'] = extracted_data
+                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
