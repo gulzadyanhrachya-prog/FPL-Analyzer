@@ -384,8 +384,7 @@ free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1, disab
 st.sidebar.subheader("Tvůj aktuální tým")
 all_player_names = sorted(df['unique_name'].tolist())
 valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
-my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_
-player_names, default=valid_team, max_selections=15)
+my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
 if st.session_state['nlp_modifiers']:
     st.sidebar.divider()
