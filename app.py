@@ -16,7 +16,6 @@ if 'bank' not in st.session_state:
 # --- 1. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
-    """Zjistí aktuální nebo poslední odehrané kolo (Gameweek)"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     for event in res['events']:
@@ -43,18 +42,39 @@ def load_fpl_data():
     
     fixtures_url = 'https://fantasy.premierleague.com/api/fixtures/?future=1'
     fixtures_data = requests.get(fixtures_url).json()
-    team_fdr = {team_id: [] for team_id in teams_df['id']}
+    
+    # Připravíme si slovníky pro 5 kol i pro 1 kolo
+    team_fdr_5gw = {team_id: [] for team_id in teams_df['id']}
+    team_fdr_1gw = {team_id: None for team_id in teams_df['id']}
+    
     for f in fixtures_data:
-        if len(team_fdr[f['team_h']]) < 5: team_fdr[f['team_h']].append(f['team_h_difficulty'])
-        if len(team_fdr[f['team_a']]) < 5: team_fdr[f['team_a']].append(f['team_a_difficulty'])
+        for t in ['team_h', 'team_a']:
+            team_id = f[t]
+            diff = f[t + '_difficulty']
+            if len(team_fdr_5gw[team_id]) < 5:
+                team_fdr_5gw[team_id].append(diff)
+            if team_fdr_1gw[team_id] is None:
+                team_fdr_1gw[team_id] = diff # Uloží jen ten úplně první (nejbližší) zápas
             
-    team_multiplier = {}
-    for team_id, fdrs in team_fdr.items():
-        avg_fdr = sum(fdrs) / len(fdrs) if len(fdrs) > 0 else 3.0
-        team_multiplier[team_id] = round(1.0 + (3.0 - avg_fdr) * 0.2, 2)
+    team_multiplier_5gw = {}
+    team_multiplier_1gw = {}
+    
+    for team_id in teams_df['id']:
+        # Výpočet koeficientu pro 5 kol
+        fdrs_5 = team_fdr_5gw[team_id]
+        avg_fdr_5 = sum(fdrs_5) / len(fdrs_5) if len(fdrs_5) > 0 else 3.0
+        team_multiplier_5gw[team_id] = round(1.0 + (3.0 - avg_fdr_5) * 0.2, 2)
         
-    df['fdr_multiplier'] = df['team'].map(team_multiplier)
-    df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier']
+        # Výpočet koeficientu pro 1 kolo
+        fdr_1 = team_fdr_1gw[team_id] if team_fdr_1gw[team_id] is not None else 3.0
+        team_multiplier_1gw[team_id] = round(1.0 + (3.0 - fdr_1) * 0.2, 2)
+        
+    df['fdr_multiplier_5gw'] = df['team'].map(team_multiplier_5gw)
+    df['fdr_multiplier_1gw'] = df['team'].map(team_multiplier_1gw)
+    
+    # Dvě různé projekce!
+    df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw']
+    df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw']
     
     return df
 
@@ -73,16 +93,16 @@ def fetch_manager_team(manager_id, current_gw, df):
     bank = data['entry_history']['bank'] / 10.0
     return team_names, bank, current_gw
 
-# NOVÁ FUNKCE: Výběr ideální základní jedenáctky a kapitána
+# OPRAVENÁ FUNKCE: Výběr ideální základní jedenáctky a kapitána (Nyní počítá jen z 1GW!)
 def get_best_xi(squad_df):
-    squad = squad_df.sort_values(by='projected_5gw_fdr', ascending=False)
+    # Řadíme podle projekce na 1 KOLO!
+    squad = squad_df.sort_values(by='projected_1gw_fdr', ascending=False)
     
     gk = squad[squad['position'] == 'GK']
     df = squad[squad['position'] == 'DEF']
     md = squad[squad['position'] == 'MID']
     fw = squad[squad['position'] == 'FWD']
     
-    # 1. Povinný základ (1 GK, 3 DEF, 2 MID, 1 FWD)
     start_idx = [
         gk.index[0],
         df.index[0], df.index[1], df.index[2],
@@ -90,27 +110,23 @@ def get_best_xi(squad_df):
         fw.index[0]
     ]
     
-    # 2. Doplnění zbylých 4 hráčů do pole podle nejvyšší projekce
     remaining_idx = [idx for idx in squad.index if idx not in start_idx and idx != gk.index[1]]
-    remaining_players = squad.loc[remaining_idx].sort_values(by='projected_5gw_fdr', ascending=False)
+    remaining_players = squad.loc[remaining_idx].sort_values(by='projected_1gw_fdr', ascending=False)
     
     start_idx.extend(remaining_players.index[:4])
     bench_idx = [gk.index[1]] + list(remaining_players.index[4:])
     
-    # 3. Určení kapitána (hráč s nejvyšší projekcí v základu)
-    start_df = squad.loc[start_idx].sort_values(by='projected_5gw_fdr', ascending=False)
+    start_df = squad.loc[start_idx].sort_values(by='projected_1gw_fdr', ascending=False)
     captain_id = start_df.iloc[0]['id']
     vc_id = start_df.iloc[1]['id']
     
-    # 4. Seřazení pro hezký výpis (GK -> DEF -> MID -> FWD)
     start_df['pos_order'] = start_df['position'].map({'GK': 1, 'DEF': 2, 'MID': 3, 'FWD': 4})
-    start_df = start_df.sort_values(by=['pos_order', 'projected_5gw_fdr'], ascending=[True, False])
+    start_df = start_df.sort_values(by=['pos_order', 'projected_1gw_fdr'], ascending=[True, False])
     
     bench_df = squad.loc[bench_idx]
     
-    # 5. Výpočet reálných bodů (Základní sestava + bonus pro kapitána)
-    captain_points = start_df.loc[start_df['id'] == captain_id, 'projected_5gw_fdr'].values[0]
-    total_xi_points = start_df['projected_5gw_fdr'].sum() + captain_points
+    captain_points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
+    total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
     
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
@@ -162,9 +178,10 @@ with tab1:
                 current_squad_df = df[df['id'].isin(current_squad_ids)]
                 total_budget = current_squad_df['now_cost'].sum() + bank
                 
-                # Získáme reálnou projekci současného týmu (Základní XI + Kapitán)
-                _, _, _, _, current_projection = get_best_xi(current_squad_df)
+                # Získáme 5GW projekci celého současného týmu
+                current_squad_5gw_proj = current_squad_df['projected_5gw_fdr'].sum()
 
+                # Solver stále optimalizuje na 5 kol (chceme dlouhodobě dobré hráče)
                 prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
@@ -190,8 +207,10 @@ with tab1:
                     selected_ids = [i for i in df['id'] if player_vars[i].varValue == 1]
                     new_squad_df = df[df['id'].isin(selected_ids)]
                     
-                    # Získáme reálnou projekci a sestavu NOVÉHO týmu
-                    new_start, new_bench, cap_id, vc_id, new_projection = get_best_xi(new_squad_df)
+                    new_squad_5gw_proj = new_squad_df['projected_5gw_fdr'].sum()
+                    
+                    # Získáme sestavu NOVÉHO týmu (počítáno čistě z 1GW!)
+                    new_start, new_bench, cap_id, vc_id, new_xi_1gw_proj = get_best_xi(new_squad_df)
                     
                     players_out = current_squad_df[~current_squad_df['id'].isin(selected_ids)]
                     players_in = new_squad_df[~new_squad_df['id'].isin(current_squad_ids)]
@@ -208,7 +227,7 @@ with tab1:
                     st.divider()
                     
                     # VYKRESLENÍ ZÁKLADNÍ SESTAVY A KAPITÁNA
-                    st.subheader("👑 Ideální základní sestava (Po přestupech)")
+                    st.subheader("👑 Ideální základní sestava (Příští kolo)")
                     col_xi, col_bench = st.columns([2, 1])
                     
                     with col_xi:
@@ -219,16 +238,19 @@ with tab1:
                                 role = " **(C)** 🌟"
                             elif row['id'] == vc_id:
                                 role = " *(VC)*"
-                            st.write(f"`{row['position']}` | {row['unique_name']}{role} - {row['projected_5gw_fdr']:.1f} b.")
+                            # Vypisujeme projekci na 1 kolo!
+                            st.write(f"`{row['position']}` | {row['unique_name']}{role} - {row['projected_1gw_fdr']:.1f} b.")
                             
                     with col_bench:
                         st.markdown("**🪑 Lavička (0 bodů):**")
                         for _, row in new_bench.iterrows():
-                            st.write(f"`{row['position']}` | {row['unique_name']} - {row['projected_5gw_fdr']:.1f} b.")
+                            st.write(f"`{row['position']}` | {row['unique_name']} - {row['projected_1gw_fdr']:.1f} b.")
                     
                     st.divider()
-                    st.metric("Čistý zisk z přestupu (Reálné body za 5 kol)", f"+{new_projection - current_projection:.1f} bodů")
-                    st.write(f"**Zůstatek v bance:** {total_budget - new_squad_df['now_cost'].sum():.1f} milionů")
+                    col_met1, col_met2, col_met3 = st.columns(3)
+                    col_met1.metric("Zisk z přestupu (Celý tým na 5 kol)", f"+{new_squad_5gw_proj - current_squad_5gw_proj:.1f} bodů")
+                    col_met2.metric("Očekávané body sestavy (Příští kolo)", f"{new_xi_1gw_proj:.1f} bodů")
+                    col_met3.metric("Zůstatek v bance", f"{total_budget - new_squad_df['now_cost'].sum():.1f} m")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
     else:
@@ -236,8 +258,8 @@ with tab1:
 
 with tab2:
     st.header("Kompletní databáze hráčů")
-    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'fdr_multiplier', 'projected_5gw_fdr']]
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'FDR Koeficient', 'Projekce (5 kol)']
+    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'fdr_multiplier_1gw', 'projected_1gw_fdr', 'projected_5gw_fdr']]
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'FDR (Příští zápas)', 'Projekce (1 kolo)', 'Projekce (5 kol)']
     st.dataframe(display_df.sort_values(by='Projekce (5 kol)', ascending=False), use_container_width=True)
 
 with tab3:
