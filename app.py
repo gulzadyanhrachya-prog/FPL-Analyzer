@@ -92,6 +92,20 @@ def load_fpl_data():
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
     
+    # --- NOVINKA: PREDIKCE ZMĚN CEN ---
+    df['transfers_in'] = pd.to_numeric(df['transfers_in_event'], errors='coerce').fillna(0)
+    df['transfers_out'] = pd.to_numeric(df['transfers_out_event'], errors='coerce').fillna(0)
+    df['net_transfers'] = df['transfers_in'] - df['transfers_out']
+    
+    def predict_price_change(net_t):
+        if net_t > 60000: return '📈 Roste'
+        elif net_t > 20000: return '↗️ Mírný růst'
+        elif net_t < -60000: return '📉 Klesá'
+        elif net_t < -20000: return '↘️ Mírný pokles'
+        else: return '➖ Stabilní'
+        
+    df['price_trend'] = df['net_transfers'].apply(predict_price_change)
+    
     active_players = df[df['minutes'] > 100]['id'].tolist()
     history_data = {}
     
@@ -386,8 +400,7 @@ with tab1:
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'DEF']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'MID']['id']]) == 5
-                prob += pulp.lpSum([player_vars[i] for
- i in df[df['position'] == 'FWD']['id']]) == 3
+                prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'FWD']['id']]) == 3
                 
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
@@ -410,7 +423,8 @@ with tab1:
                     col1, col2 = st.columns(2)
                     with col1:
                         for _, p_out in players_out.iterrows():
-                            st.error(f"❌ PRODEJ: {p_out['unique_name']} ({p_out['now_cost']}m) | Projekce: {p_out['projected_5gw_fdr']:.1f} b.")
+                            st.error(f"❌ PRODEJ: {
+p_out['unique_name']} ({p_out['now_cost']}m) | Projekce: {p_out['projected_5gw_fdr']:.1f} b.")
                     with col2:
                         for _, p_in in players_in.iterrows():
                             st.success(f"✅ KUP: {p_in['unique_name']} ({p_in['now_cost']}m) | Projekce: {p_in['projected_5gw_fdr']:.1f} b.")
@@ -472,8 +486,9 @@ with tab2:
     else:
         filtered_df = df
     
-    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    # --- NOVINKA: Zobrazení Cenového trendu a čistých přestupů ---
+    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'price_trend', 'net_transfers', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Cenový Trend', 'Čisté Přestupy', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
@@ -493,7 +508,7 @@ with tab2:
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
-        'Cena': "{:.1f}", 'Kurz na Gól': "{:.2f}", 'Kurz na ČK': "{:.2f}", 'Hybridní Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
+        'Cena': "{:.1f}", 'Čisté Přestupy': "{:,}", 'Kurz na Gól': "{:.2f}", 'Kurz na ČK': "{:.2f}", 'Hybridní Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
