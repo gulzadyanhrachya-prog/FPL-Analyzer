@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import requests
 import pulp
+import json
+import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -12,11 +14,12 @@ if 'my_team' not in st.session_state:
     st.session_state['my_team'] = []
 if 'bank' not in st.session_state:
     st.session_state['bank'] = 0.0
+if 'nlp_modifiers' not in st.session_state:
+    st.session_state['nlp_modifiers'] = []
 
 # --- 1. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
-    """Zjistí aktuální nebo poslední odehrané kolo (Gameweek)"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     for event in res['events']:
@@ -289,10 +292,19 @@ with tab1:
 with tab2:
     st.header("Kompletní databáze hráčů a Fixture Ticker")
     
-    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'chance_of_playing_next_round', 'news', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    # --- NOVINKA: Filtr podle klubů ---
+    all_teams = sorted(df['team_name'].unique().tolist())
+    selected_teams = st.multiselect("🔍 Filtrovat podle klubů:", all_teams, default=[], placeholder="Vyber jeden nebo více týmů...")
+    
+    if selected_teams:
+        filtered_df = df[df['team_name'].isin(selected_teams)]
+    else:
+        filtered_df = df
+    
+    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'form', 'chance_of_playing_next_round', 'news', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
     display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Šance hrát (%)', 'Zprávy', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
-    diff_df = df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
+    diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     def style_fixtures(data, diffs):
