@@ -46,6 +46,11 @@ def load_fpl_data():
     df['position'] = df['element_type'].map(position_map)
     df['form'] = df['form'].astype(float)
     
+    # --- AUTOMATICKÁ ZRANĚNÍ Z FPL API ---
+    df['chance_of_playing_next_round'] = pd.to_numeric(df['chance_of_playing_next_round'], errors='coerce').fillna(100)
+    df['health_multiplier'] = df['chance_of_playing_next_round'] / 100.0
+    df['news'] = df['news'].fillna('')
+    
     fixtures_url = 'https://fantasy.premierleague.com/api/fixtures/?future=1'
     fixtures_data = requests.get(fixtures_url).json()
     
@@ -64,7 +69,8 @@ def load_fpl_data():
         if len(team_fdr_5gw[team_h]) < 5:
             team_fdr_5gw[team_h].append(diff_h)
             team_fixtures_str[team_h].append(f"{team_short_mapping[team_a]} (H)")
-            team_fixtures_diff[team_h].append(diff_h)
+            team_fixtures_diff[team_h
+].append(diff_h)
             
         if len(team_fdr_5gw[team_a]) < 5:
             team_fdr_5gw[team_a].append(diff_a)
@@ -88,8 +94,8 @@ def load_fpl_data():
     df['fdr_multiplier_5gw'] = df['team'].map(team_multiplier_5gw)
     df['fdr_multiplier_1gw'] = df['team'].map(team_multiplier_1gw)
     
-    df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw']
-    df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw']
+    df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw'] * df['health_multiplier']
+    df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw'] * df['health_multiplier']
     
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
@@ -192,7 +198,7 @@ my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names
 
 if st.session_state['nlp_modifiers']:
     st.sidebar.divider()
-    st.sidebar.subheader("🏥 Aktivní AI hlášení")
+    st.sidebar.subheader("🏥 Aktivní AI hlášení z tiskovek")
     for mod in st.session_state['nlp_modifiers']:
         if mod['xMins_multiplier'] < 1.0:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
@@ -264,11 +270,13 @@ with tab1:
                                     role = ""
                                     if row['id'] == cap_id: role = " <span style='color: #FFD700;'>**(C)**</span>"
                                     elif row['id'] == vc_id: role = " *(VC)*"
+                                    
+                                    health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                                         
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
                                         <div style="font-size: 28px;">👕</div>
-                                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{row['web_name']}">{row['web_name']}{role}</div>
+                                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{row['web_name']}">{row['web_name']}{role}{health_icon}</div>
                                         <div style="font-size: 14px; color: #4CAF50; font-weight: bold;">{row['projected_1gw_fdr']:.1f} b.</div>
                                     </div>
                                     """, unsafe_allow_html=True)
@@ -278,9 +286,10 @@ with tab1:
                     bench_cols = st.columns(4)
                     for col, (_, row) in zip(bench_cols, new_bench.iterrows()):
                         with col:
+                            health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                             st.markdown(f"""
                             <div style="text-align: center; padding: 8px; background-color: rgba(255, 99, 71, 0.1); border-radius: 10px; border: 1px dashed rgba(255, 99, 71, 0.3);">
-                                <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}</div>
+                                <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}</div>
                                 <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -298,8 +307,8 @@ with tab1:
 with tab2:
     st.header("Kompletní databáze hráčů a Fixture Ticker")
     
-    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'chance_of_playing_next_round', 'news', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Šance hrát (%)', 'Zprávy', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
@@ -319,7 +328,7 @@ with tab2:
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
-        'Cena': "{:.1f}", 'Forma': "{:.1f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
+        'Cena': "{:.1f}", 'Forma': "{:.1f}", 'Šance hrát (%)': "{:.0f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
@@ -349,10 +358,8 @@ with tab3:
                         """
                         extracted_data = json.loads(demo_json)['players']
                     else:
-                        # SKUTEČNÉ VOLÁNÍ GOOGLE GEMINI API (ZDARMA)
                         genai.configure(api_key=api_key)
                         
-                        # Využijeme model Gemini 1.5 Flash a vynutíme JSON výstup
                         model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
                         
                         prompt = """
