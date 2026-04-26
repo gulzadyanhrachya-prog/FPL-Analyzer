@@ -402,8 +402,7 @@ with tab1:
                 prob += pulp.lpSum([projections[i] * player_vars[i] for i in df['id']])
                 prob += pulp.lpSum([player_vars[i] for i in df['id']]) == 15
                 prob += pulp.lpSum([costs[i] * player_vars[i] for i in df['id']]) <= total_budget
-                prob += pulp.lpSum([player
-_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
+                prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'DEF']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'MID']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'FWD']['id']]) == 3
