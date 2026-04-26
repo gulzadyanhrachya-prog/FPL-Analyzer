@@ -16,6 +16,7 @@ if 'bank' not in st.session_state:
 # --- 1. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
+    """Zjistí aktuální nebo poslední odehrané kolo (Gameweek)"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     for event in res['events']:
@@ -43,7 +44,6 @@ def load_fpl_data():
     fixtures_url = 'https://fantasy.premierleague.com/api/fixtures/?future=1'
     fixtures_data = requests.get(fixtures_url).json()
     
-    # Připravíme si slovníky pro 5 kol i pro 1 kolo
     team_fdr_5gw = {team_id: [] for team_id in teams_df['id']}
     team_fdr_1gw = {team_id: None for team_id in teams_df['id']}
     
@@ -54,25 +54,22 @@ def load_fpl_data():
             if len(team_fdr_5gw[team_id]) < 5:
                 team_fdr_5gw[team_id].append(diff)
             if team_fdr_1gw[team_id] is None:
-                team_fdr_1gw[team_id] = diff # Uloží jen ten úplně první (nejbližší) zápas
+                team_fdr_1gw[team_id] = diff
             
     team_multiplier_5gw = {}
     team_multiplier_1gw = {}
     
     for team_id in teams_df['id']:
-        # Výpočet koeficientu pro 5 kol
         fdrs_5 = team_fdr_5gw[team_id]
         avg_fdr_5 = sum(fdrs_5) / len(fdrs_5) if len(fdrs_5) > 0 else 3.0
         team_multiplier_5gw[team_id] = round(1.0 + (3.0 - avg_fdr_5) * 0.2, 2)
         
-        # Výpočet koeficientu pro 1 kolo
         fdr_1 = team_fdr_1gw[team_id] if team_fdr_1gw[team_id] is not None else 3.0
         team_multiplier_1gw[team_id] = round(1.0 + (3.0 - fdr_1) * 0.2, 2)
         
     df['fdr_multiplier_5gw'] = df['team'].map(team_multiplier_5gw)
     df['fdr_multiplier_1gw'] = df['team'].map(team_multiplier_1gw)
     
-    # Dvě různé projekce!
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw']
     df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw']
     
@@ -93,9 +90,7 @@ def fetch_manager_team(manager_id, current_gw, df):
     bank = data['entry_history']['bank'] / 10.0
     return team_names, bank, current_gw
 
-# OPRAVENÁ FUNKCE: Výběr ideální základní jedenáctky a kapitána (Nyní počítá jen z 1GW!)
 def get_best_xi(squad_df):
-    # Řadíme podle projekce na 1 KOLO!
     squad = squad_df.sort_values(by='projected_1gw_fdr', ascending=False)
     
     gk = squad[squad['position'] == 'GK']
@@ -178,10 +173,8 @@ with tab1:
                 current_squad_df = df[df['id'].isin(current_squad_ids)]
                 total_budget = current_squad_df['now_cost'].sum() + bank
                 
-                # Získáme 5GW projekci celého současného týmu
                 current_squad_5gw_proj = current_squad_df['projected_5gw_fdr'].sum()
 
-                # Solver stále optimalizuje na 5 kol (chceme dlouhodobě dobré hráče)
                 prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
@@ -208,8 +201,6 @@ with tab1:
                     new_squad_df = df[df['id'].isin(selected_ids)]
                     
                     new_squad_5gw_proj = new_squad_df['projected_5gw_fdr'].sum()
-                    
-                    # Získáme sestavu NOVÉHO týmu (počítáno čistě z 1GW!)
                     new_start, new_bench, cap_id, vc_id, new_xi_1gw_proj = get_best_xi(new_squad_df)
                     
                     players_out = current_squad_df[~current_squad_df['id'].isin(selected_ids)]
@@ -219,32 +210,51 @@ with tab1:
                     col1, col2 = st.columns(2)
                     with col1:
                         for _, p_out in players_out.iterrows():
-                            st.error(f"❌ PRODEJ: {p_out['unique_name']} ({p_out['now_cost']}m)")
+                            st.error(f"❌ PRODEJ: {p_out['unique_name']} ({p_out['now_cost']}m) | Projekce: {p_out['projected_5gw_fdr']:.1f} b.")
                     with col2:
                         for _, p_in in players_in.iterrows():
-                            st.success(f"✅ KUP: {p_in['unique_name']} ({p_in['now_cost']}m)")
+                            st.success(f"✅ KUP: {p_in['unique_name']} ({p_in['now_cost']}m) | Projekce: {p_in['projected_5gw_fdr']:.1f} b.")
                             
                     st.divider()
                     
-                    # VYKRESLENÍ ZÁKLADNÍ SESTAVY A KAPITÁNA
-                    st.subheader("👑 Ideální základní sestava (Příští kolo)")
-                    col_xi, col_bench = st.columns([2, 1])
+                    # --- NOVÉ VIZUÁLNÍ HŘIŠTĚ ---
+                    st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
                     
-                    with col_xi:
-                        st.markdown("**Základní jedenáctka:**")
-                        for _, row in new_start.iterrows():
-                            role = ""
-                            if row['id'] == cap_id:
-                                role = " **(C)** 🌟"
-                            elif row['id'] == vc_id:
-                                role = " *(VC)*"
-                            # Vypisujeme projekci na 1 kolo!
-                            st.write(f"`{row['position']}` | {row['unique_name']}{role} - {row['projected_1gw_fdr']:.1f} b.")
-                            
-                    with col_bench:
-                        st.markdown("**🪑 Lavička (0 bodů):**")
-                        for _, row in new_bench.iterrows():
-                            st.write(f"`{row['position']}` | {row['unique_name']} - {row['projected_1gw_fdr']:.1f} b.")
+                    # Vykreslení základní sestavy po řadách (GK, DEF, MID, FWD)
+                    for pos in ['GK', 'DEF', 'MID', 'FWD']:
+                        players_in_pos = new_start[new_start['position'] == pos]
+                        if not players_in_pos.empty:
+                            # Vytvoříme tolik sloupců, kolik je hráčů v dané řadě
+                            cols = st.columns(len(players_in_pos))
+                            for col, (_, row) in zip(cols, players_in_pos.iterrows()):
+                                with col:
+                                    # Určení role (Kapitán / Zástupce)
+                                    role = ""
+                                    if row['id'] == cap_id:
+                                        role = " <span style='color: #FFD700;'>**(C)**</span>"
+                                    elif row['id'] == vc_id:
+                                        role = " *(VC)*"
+                                        
+                                    # HTML/CSS kartička hráče
+                                    st.markdown(f"""
+                                    <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
+                                        <div style="font-size: 28px;">👕</div>
+                                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{row['web_name']}">{row['web_name']}{role}</div>
+                                        <div style="font-size: 14px; color: #4CAF50; font-weight: bold;">{row['projected_1gw_fdr']:.1f} b.</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+                    st.subheader("🪑 Lavička náhradníků")
+                    bench_cols = st.columns(4)
+                    for col, (_, row) in zip(bench_cols, new_bench.iterrows()):
+                        with col:
+                            st.markdown(f"""
+                            <div style="text-align: center; padding: 8px; background-color: rgba(255, 99, 71, 0.1); border-radius: 10px; border: 1px dashed rgba(255, 99, 71, 0.3);">
+                                <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}</div>
+                                <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                     
                     st.divider()
                     col_met1, col_met2, col_met3 = st.columns(3)
