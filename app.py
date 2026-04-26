@@ -409,8 +409,7 @@ with tab_home:
         team_value = current_squad_df['now_cost'].sum() + bank
         
         st.subheader("📊 Rychlý přehled")
-        col1, col2, col3, col4 = st
-.columns(4)
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Hodnota týmu", f"{team_value:.1f} m")
         col2.metric("V bance", f"{bank:.1f} m")
         col3.metric("Očekávané body (Příští kolo)", f"{c_xi_pts:.1f} b.")
