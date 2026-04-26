@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 8.0 - Live Tracker)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 9.0 - Rival Tracker)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -274,7 +274,7 @@ def fetch_manager_team(manager_id, current_gw, df):
     bank = data['entry_history']['bank'] / 10.0
     return team_names, bank, current_gw
 
-# --- NOVÉ FUNKCE PRO LIVE TRACKER ---
+# --- NOVÉ FUNKCE PRO LIVE TRACKER A MINI-LIGY ---
 def fetch_live_manager_data(manager_id, gw):
     url = f'https://fantasy.premierleague.com/api/entry/{manager_id}/event/{gw}/picks/'
     res = requests.get(url)
@@ -349,7 +349,8 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
             
             if fetched_team and len(fetched_team) == 15:
                 st.session_state['my_team'] = fetched_team
-                st.session_state['bank'] = fetched_bank
+                
+st.session_state['bank'] = fetched_bank
                 if real_gw < gw:
                     st.sidebar.warning(f"⚠️ Detekován Free Hit v GW{gw}! Načten tvůj permanentní tým z GW{real_gw}.")
                 else:
@@ -408,8 +409,8 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-# PŘIDÁNA NOVÁ ZÁLOŽKA PRO LIVE TRACKER (TAB LIVE)
-tab_home, tab_live, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔴 Live Gameweek", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+# PŘIDÁNA NOVÁ ZÁLOŽKA PRO MINI-LIGY (TAB LEAGUE)
+tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 # --- HLAVNÍ DASHBOARD ---
 with tab_home:
@@ -468,7 +469,7 @@ with tab_home:
         st.write("Tento nástroj kombinuje stochastickou matematiku, lineární programování a umělou inteligenci od Googlu, aby ti pomohl vyhrát tvou mini-ligu.")
         st.write("👉 **Pro zobrazení dashboardu si v levém panelu stáhni svůj tým (zadej FPL ID) nebo ručně vyber 15 hráčů.**")
 
-# --- NOVINKA: LIVE GAMEWEEK TRACKER ---
+# --- LIVE GAMEWEEK TRACKER ---
 with tab_live:
     st.header("🔴 Live Gameweek Tracker")
     st.write("Sleduj své body, minuty a bonusy (BPS) v reálném čase během víkendu! Aplikace si stáhne tvé skutečné rozestavení a kapitána pro aktuální kolo.")
@@ -501,7 +502,6 @@ with tab_live:
                         live_pts = pts * mult
                         total_live_pts += live_pts
 
-                        # Získání jména a pozice z našeho hlavního DataFrame
                         p_match = df[df['id'] == pid]
                         p_name = p_match['web_name'].values[0] if not p_match.empty else "Neznámý"
                         p_pos = p_match['position'].values[0] if not p_match.empty else "-"
@@ -529,7 +529,6 @@ with tab_live:
 
                     live_df = pd.DataFrame(live_rows)
                     
-                    # Obarvení tabulky (Základ vs Lavička)
                     def style_live_rows(row):
                         if row['Základ/Lavička'] == 'Lavička':
                             return ['color: gray; font-style: italic;'] * len(row)
@@ -543,6 +542,88 @@ with tab_live:
                     st.error("Nepodařilo se načíst živá data. Možná probíhá aktualizace FPL serverů nebo ještě nezačalo kolo.")
     else:
         st.info("👈 Zadej své FPL ID v levém panelu a stáhni svůj tým pro zobrazení Live dat.")
+
+# --- NOVINKA: ANALYZÁTOR MINI-LIG ---
+with tab_league:
+    st.header("⚔️ Analyzátor Mini-lig (Rival Tracker)")
+    st.write("Zadej ID své klasické mini-ligy. AI zanalyzuje týmy tvých největších rivalů (Top 10) a najde tvé největší diferenciály a hrozby!")
+    
+    league_id = st.text_input("🏆 Zadej ID Mini-ligy (najdeš v URL na webu FPL, např. 314):")
+    
+    if st.button("🔍 Analyzovat Rivaly", type="primary"):
+        if league_id.isdigit():
+            if len(my_team) == 15:
+                with st.spinner("Stahuji data o mini-lize a analyzuji týmy rivalů..."):
+                    gw = get_current_gw()
+                    url_league = f'https://fantasy.premierleague.com/api/leagues-classic/{league_id}/standings/'
+                    res_league = requests.get(url_league)
+                    
+                    if res_league.status_code == 200:
+                        league_data = res_league.json()
+                        # Vezmeme Top 10 manažerů z ligy
+                        standings = league_data.get('standings', {}).get('results', [])[:10] 
+                        
+                        if standings:
+                            st.subheader(f"📊 Analýza Top {len(standings)} manažerů v lize: {league_data.get('league', {}).get('name', '')}")
+                            
+                            rival_picks = []
+                            for manager in standings:
+                                m_id = manager['entry']
+                                # Přeskočíme tebe, pokud jsi v Top 10, abychom porovnávali jen s ostatními
+                                if str(m_id) == str(manager_id):
+                                    continue
+                                m_team, _, _ = fetch_manager_team(m_id, gw, df)
+                                if m_team:
+                                    rival_picks.extend(m_team)
+                                    
+                            if rival_picks:
+                                # Výpočet vlastnictví (Effective Ownership)
+                                ownership_counts = pd.Series(rival_picks).value_counts()
+                                num_rivals = len(standings) if str(manager_id) not in [str(m['entry']) for m in standings] else len(standings) - 1
+                                ownership_pct = (ownership_counts / num_rivals) * 100
+                                
+                                my_team_set = set(my_team)
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.success("🛡️ Tvoje Diferenciály (Máš je ty, ale rivalové ne)")
+                                    diffs = [p for p in my_team_set if ownership_pct.get(p, 0) <= 20]
+                                    if diffs:
+                                        for p in diffs:
+                                            st.markdown(f"- **{p}** (Vlastní jen {ownership_pct.get(p, 0):.0f} % rivalů)")
+                                    else:
+                                        st.info("Nemáš žádné výrazné diferenciály proti Top 10.")
+                                        
+                                with col2:
+                                    st.error("⚠️ Největší Hrozby (Rivalové je mají, ty ne)")
+                                    threats = ownership_pct[ownership_pct >= 50].index.tolist()
+                                    real_threats = [p for p in threats if p not in my_team_set]
+                                    if real_threats:
+                                        for p in real_threats:
+                                            st.markdown(f"- **{p}** (Vlastní {ownership_pct.get(p, 0):.0f} % rivalů)")
+                                    else:
+                                        st.success("Máš všechny klíčové hráče, které mají tvoji rivalové!")
+                                        
+                                st.divider()
+                                st.subheader("📈 Vlastnictví hráčů v Top 10 (Effective Ownership)")
+                                eo_df = pd.DataFrame({
+                                    "Hráč": ownership_pct.index,
+                                    "Vlastnictví v Top 10 (%)": ownership_pct.values
+                                }).sort_values(by="Vlastnictví v Top 10 (%)", ascending=False)
+                                
+                                st.dataframe(
+                                    eo_df.style.format({"Vlastnictví v Top 10 (%)": "{:.0f} %"})\
+                                    .background_gradient(cmap='Reds', subset=['Vlastnictví v Top 10 (%)']),
+                                    use_container_width=True, hide_index=True
+                                )
+                            else:
+                                st.warning("Nepodařilo se načíst týmy rivalů (možná probíhá aktualizace kola).")
+                    else:
+                        st.error("Nepodařilo se načíst ligu. Zkontroluj, zda je ID správné a liga je veřejná.")
+            else:
+                st.warning("Nejprve si v levém panelu stáhni svůj tým, abychom ho mohli porovnat s rivaly!")
+        else:
+            st.warning("Zadej platné číselné ID ligy.")
 
 with tab1:
     st.header("Matematický návrh přestupů (Jednorázový)")
@@ -768,7 +849,8 @@ with tab6:
 
         team_df['Floor'] = 2.0 * team_df['health_multiplier']
         team_df.loc[team_df['position'].isin(['DEF', 'GK']), 'Floor'] += (team_df['CS_Prob'] / 100.0 * 4.0) * team_df['health_multiplier']
-        team_df.loc[team_df['position'] == 'MID', 'Floor'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
+        team_df.loc[team_df['position'] == 'MID', 'Floor
+'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
 
         team_df['Ceiling'] = team_df['projected_1gw_fdr'] + (team_df['Goal_Prob'] / 100.0 * 5.0) + (team_df['xA_90'] * 0.5) + 1.5
 
