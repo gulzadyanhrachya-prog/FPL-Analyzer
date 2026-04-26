@@ -319,8 +319,7 @@ def get_best_xi(squad_df):
     bench_df = squad.loc[bench_idx]
     
     captain_
-points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
-    total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
+points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
     
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
