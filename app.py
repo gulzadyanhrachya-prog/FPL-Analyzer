@@ -378,8 +378,7 @@ with tab1:
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
                 projections = dict(zip(df['id'], df['projected_5gw_fdr']))
-                costs = dict(zip(df['id'], df['now_cost
-']))
+                costs = dict(zip(df['id'], df['now_cost']))
                 
                 prob += pulp.lpSum([projections[i] * player_vars[i] for i in df['id']])
                 prob += pulp.lpSum([player_vars[i] for i in df['id']]) == 15
@@ -387,7 +386,8 @@ with tab1:
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'DEF']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'MID']['id']]) == 5
-                prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'FWD']['id']]) == 3
+                prob += pulp.lpSum([player_vars[i] for
+ i in df[df['position'] == 'FWD']['id']]) == 3
                 
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
