@@ -313,8 +313,7 @@ def get_best_xi(squad_df):
 with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
     df = load_fpl_data()
 
-# --- APLIKACE NLP MODIFIKÁTORŮ Z T
-ISKOVEK ---
+# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
 if st.session_state['nlp_modifiers']:
     for mod in st.session_state['nlp_modifiers']:
         idx = df['web_name'] == mod['web_name']
