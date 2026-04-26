@@ -473,8 +473,7 @@ with tab3:
                     ]
                 }
                 """
-                extracted_data = json.loads(demo_json)['
-players']
+                extracted_data = json.loads(demo_json)['players']
                 st.session_state['nlp_modifiers'] = extracted_data
                 st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                 st.rerun()
