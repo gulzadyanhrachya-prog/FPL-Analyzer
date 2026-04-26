@@ -187,8 +187,7 @@ def load_fpl_data():
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw'] * df['health_multiplier']
     
     # --- NOVINKA: SIMULACE SÁZKOVÝCH KURZŮ (Odds Compiler) ---
-    # Vytvoříme realistické kurzy na základě síly týmu a formy hráče
-    cs_odds_map = {1: 1.80, 2: 2.20, 3: 3.50, 4: 5.50, 5: 8.00} # Kurz na čisté konto podle FDR
+    cs_odds_map = {1: 1.80, 2: 2.20, 3: 3.50, 4: 5.50, 5: 8.00} 
     
     odds_goal = []
     odds_cs = []
@@ -197,13 +196,10 @@ def load_fpl_data():
     for idx, row in df.iterrows():
         fdr_next = team_fdr_1gw[row['team']] if team_fdr_1gw[row['team']] is not None else 3
         
-        # 1. Kurz na čisté konto (CS)
         cs_odd = cs_odds_map.get(fdr_next, 3.50)
         cs_prob = 1.0 / cs_odd
         odds_cs.append(cs_odd)
         
-        # 2. Kurz na gól (Anytime Goalscorer)
-        # Závisí na pozici a formě. Útočník s formou 8.0 proti lehkému soupeři bude mít kurz třeba 1.80
         base_goal_prob = (row['form'] / 15.0) * (1.0 + (3.0 - fdr_next) * 0.15)
         
         if row['position'] == 'FWD': goal_prob = min(0.65, max(0.05, base_goal_prob))
@@ -214,8 +210,7 @@ def load_fpl_data():
         goal_odd = round(1.0 / goal_prob, 2) if goal_prob > 0 else 99.0
         odds_goal.append(goal_odd)
         
-        # 3. Výpočet očekávaných bodů čistě ze sázkových kurzů!
-        pts_from_odds = 2.0 # Základ za start
+        pts_from_odds = 2.0 
         if row['position'] in ['DEF', 'GK']: pts_from_odds += (cs_prob * 4.0)
         elif row['position'] == 'MID': pts_from_odds += (cs_prob * 1.0)
         
@@ -223,7 +218,6 @@ def load_fpl_data():
         elif row['position'] == 'MID': pts_from_odds += (goal_prob * 5.0)
         elif row['position'] == 'DEF': pts_from_odds += (goal_prob * 6.0)
         
-        # Přidáme asistenci a bonusy jako odhad (kurzy na asistence se špatně simulují)
         pts_from_odds += (row['form'] * 0.3) 
         
         odds_implied_pts.append(pts_from_odds * row['health_multiplier'])
@@ -425,7 +419,8 @@ with tab1:
                                     if row['id'] == cap_id: role = " <span style='color: #FFD700;'>**(C)**</span>"
                                     elif row['id'] == vc_id: role = " *(VC)*"
                                     
-                                    health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                                    health_icon = f" <
+span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                                         
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
@@ -469,10 +464,8 @@ with tab2:
     else:
         filtered_df = df
     
-    # Přidány sloupce pro kurzy a hybridní projekci
     display_df = filtered_df[['unique_name', 'position', 'now_cost', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na G]
-ól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
