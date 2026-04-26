@@ -7,10 +7,11 @@ import concurrent.futures
 import numpy as np
 from scipy.stats import poisson
 import plotly.graph_objects as go
+import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 3.0 - Multi-Period)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 4.1 - Cloud Ready)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -68,7 +69,6 @@ def get_current_gw():
         if event['is_current']: return event['id']
     for event in res['events']:
         if event['is_previous']: return event['id']
-
     return 1
 
 def fetch_player_history(player_id):
@@ -250,12 +250,10 @@ def load_fpl_data():
     df['Goal_pct'] = df['Goal_Prob'].rank(pct=True) * 100
     df['CS_pct'] = df['CS_Prob'].rank(pct=True) * 100
     
-    # --- NOVINKA: ROZPAD PROJEKCÍ NA JEDNOTLIVÁ KOLA ---
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
         df[f'Diff {i+1}'] = df['team'].apply(lambda x: team_fixtures_diff[x][i] if len(team_fixtures_diff[x]) > i else 3)
         
-        # Výpočet projekce pro konkrétní kolo (w)
         fdr_mult = 1.0 + (3.0 - df[f'Diff {i+1}']) * 0.2
         df[f'proj_gw{i+1}'] = df['form'] * fdr_mult * df['health_multiplier']
     
@@ -359,7 +357,6 @@ odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_valu
 odds_ratio = odds_weight / 100.0
 
 df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * (1.0 - odds_ratio)) + (df['odds_1gw_pts'] * odds_ratio)
-# Propojíme hybridní model s prvním kolem vícekolového plánovače!
 df['proj_gw1'] = df['projected_1gw_fdr']
 
 st.sidebar.divider()
@@ -388,7 +385,6 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-# PŘIDÁNA NOVÁ ZÁLOŽKA (TAB 5)
 tab1, tab5, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 with tab1:
@@ -403,7 +399,8 @@ with tab1:
                 
                 current_squad_5gw_proj = current_squad_df['projected_5gw_fdr'].sum()
 
-                prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
+                prob = pulp.
+LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
                 projections = dict(zip(df['id'], df['projected_5gw_fdr']))
@@ -493,7 +490,6 @@ with tab1:
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
 
-# --- NOVINKA: VÍCEKOLOVÝ PLÁNOVAČ ---
 with tab5:
     st.header("🚀 Vícekolový plánovač přestupů (Multi-Period)")
     st.write("Tento model chápe čas. Plánuje sekvenci přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
@@ -509,67 +505,50 @@ with tab5:
                 prob = pulp.LpProblem("MultiPeriod_FPL", pulp.LpMaximize)
                 gw_range = range(1, horizon + 1)
                 
-                # 1. Definice 2D proměnných (Hráč + Čas)
                 squad = pulp.LpVariable.dicts("squad", (df['id'], range(horizon + 1)), cat='Binary')
                 transfer_in = pulp.LpVariable.dicts("transfer_in", (df['id'], gw_range), cat='Binary')
                 transfer_out = pulp.LpVariable.dicts("transfer_out", (df['id'], gw_range), cat='Binary')
                 
-                # Pomocné proměnné pro počítání hitů
                 transfers_count = pulp.LpVariable.dicts("transfers_count", gw_range, lowBound=0, cat='Integer')
                 hits = pulp.LpVariable.dicts("hits", gw_range, lowBound=0, cat='Integer')
                 
-                # Rychlá extrakce dat do slovníků (aby byl PuLP bleskově rychlý)
                 costs = dict(zip(df['id'], df['now_cost']))
                 names = dict(zip(df['id'], df['unique_name']))
                 projections = {w: dict(zip(df['id'], df[f'proj_gw{w}'])) for w in gw_range}
                 
-                # 2. Cílová funkce (Maximalizovat body ve všech kolech MINUS hity)
                 objective = []
                 for w in gw_range:
                     for i in df['id']:
                         objective.append(squad[i][w] * projections[w][i])
-                    objective.append(-4.0 * hits[w]) # Penalizace -4 body za každý hit
+                    objective.append(-4.0 * hits[w])
                 prob += pulp.lpSum(objective)
                 
-                # 3. Počáteční stav (Kolo 0 = Tvůj aktuální tým)
                 for i in df['id']:
                     if i in current_squad_ids:
                         prob += squad[i][0] == 1
                     else:
                         prob += squad[i][0] == 0
                         
-                # 4. Omezení pro každé budoucí kolo
                 for w in gw_range:
-                    # Tým musí mít přesně 15 hráčů
                     prob += pulp.lpSum([squad[i][w] for i in df['id']]) == 15
-                    
-                    # Rozpočet nesmí být překročen
                     prob += pulp.lpSum([squad[i][w] * costs[i] for i in df['id']]) <= total_budget
                     
-                    # Pozice
                     prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'GK']['id']]) == 2
                     prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'DEF']['id']]) == 5
                     prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'MID']['id']]) == 5
                     prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'FWD']['id']]) == 3
 
-                    
-                    # Max 3 hráči z jednoho klubu
                     for team in df['team_name'].unique():
                         prob += pulp.lpSum([squad[i][w] for i in df[df['team_name'] == team]['id']]) <= 3
                         
-                    # Rovnice kontinuity (Tým v kole W = Tým v kole W-1 + Nákupy - Prodeje)
                     for i in df['id']:
                         prob += squad[i][w] == squad[i][w-1] + transfer_in[i][w] - transfer_out[i][w]
                         
-                    # Spočítání celkového počtu přestupů v daném kole
                     prob += transfers_count[w] == pulp.lpSum([transfer_in[i][w] for i in df['id']])
                     
-                    # Logika volných přestupů a hitů
                     if w == 1:
-                        # Pro první kolo použijeme počet FT z bočního panelu
                         prob += hits[w] >= transfers_count[w] - free_transfers
                     else:
-                        # Pro další kola předpokládáme zisk 1 nového FT
                         prob += hits[w] >= transfers_count[w] - 1
                         
                 prob.solve()
@@ -690,26 +669,62 @@ with tab3:
         })
         st.dataframe(comp_df, hide_index=True, use_container_width=True)
 
+# --- NOVINKA: BEZPEČNÁ INTEGRACE GEMINI API PRO GITHUB/STREAMLIT CLOUD ---
 with tab4:
-    st.header("🧠 AI Analýza tiskových konferencí (Demo)")
-    st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
+    st.header("🧠 AI Analýza tiskových konferencí (Gemini 1.5 Flash)")
+    st.write("Vlož text z tiskovky nebo novinky z Twitteru. Skutečná AI od Googlu text přečte, pochopí kontext zranění a automaticky upraví projekce hráčů v celém systému!")
     
-    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí...")
+    # Zabezpečené načítání klíče
+    api_key = ""
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        st.success("🔐 API klíč byl bezpečně načten z nastavení Streamlit Cloud (Secrets)!")
+    else:
+        api_key = st.text_input("🔑 Zadej svůj Google Gemini API klíč (zdarma na Google AI Studio):", type="password")
+        st.info("💡 Tip pro nasazení: Přidej si klíč do nastavení aplikace ve Streamlit Cloud (Settings -> Secrets) jako `GEMINI_API_KEY = 'tvůj_klíč'`, abys ho nemusel zadávat ručně.")
+    
+    news_text = st.text_area("Text z tiskovky (např. přepis slov Pepa Guardioly):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený, možná začne na lavičce...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
-        if not news_text:
-            st.warning("Nejprve vlož nějaký text.")
+        if not api_key:
+            st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
+        elif not news_text:
+            st.warning("⚠️ Nejprve vlož nějaký text k analýze.")
         else:
             with st.spinner("AI čte text a hledá zranění..."):
-                demo_json = """
-                {
-                    "players": [
-                        {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
-                        {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
-                    ]
-                }
-                """
-                extracted_data = json.loads(demo_json)['players']
-                st.session_state['nlp_modifiers'] = extracted_data
-                st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
-                st.rerun()
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    
+                    prompt = f"""
+                    Jsi expert na Fantasy Premier League (FPL). Přečti si následující text z tiskové konference nebo zpráv a extrahuj informace o zraněních, rotaci nebo dostupnosti hráčů.
+                    
+                    Vrať POUZE validní JSON v tomto přesném formátu, nic jiného (žádný markdown, žádné vysvětlování):
+                    {{
+                        "players": [
+                            {{"web_name": "Jméno hráče", "xMins_multiplier": 0.0, "reason": "Stručný důvod v češtině"}}
+                        ]
+                    }}
+                    
+                    Pravidla pro xMins_multiplier:
+                    - 0.0 = Hráč je zraněný nebo suspendovaný a určitě nehraje.
+                    - 0.5 = Hráč je nejistý (doubtful), má drobný šrám, nebo pravděpodobně začne na lavičce.
+                    - 1.0 = Hráč je plně fit a připraven hrát.
+                    
+                    Text k analýze:
+                    {news_text}
+                    """
+                    
+                    response = model.generate_content(prompt)
+                    cleaned_response = response.text.replace('```json', '').replace('```', '').strip()
+                    extracted_data = json.loads(cleaned_response)['players']
+                    
+                    if extracted_data:
+                        st.session_state['nlp_modifiers'] = extracted_data
+                        st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                        st.rerun()
+                    else:
+                        st.info("AI v textu nenašla žádné relevantní informace o zraněních.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Chyba při komunikaci s AI nebo při zpracování dat: {e}")
