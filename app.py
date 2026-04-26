@@ -260,7 +260,6 @@ def load_fpl_data():
     return df
 
 def fetch_manager_team(manager_id, current_gw, df):
-
     url = f'https://fantasy.premierleague.com/api/entry/{manager_id}/event/{current_gw}/picks/'
     res = requests.get(url)
     if res.status_code != 200:
@@ -470,7 +469,8 @@ with tab_home:
         for col, (_, row) in zip(cols, top_form.iterrows()):
             with col:
                 st.markdown(f"**{row['web_name']}**")
-                st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.1f} (Lepší než {int(row['Form_pct'])}% ligy)")
+                st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.
+1f} (Lepší než {int(row['Form_pct'])}% ligy)")
                 
     else:
         st.info("👋 Vítej v Ultimátním FPL AI Managerovi!")
@@ -650,9 +650,17 @@ with tab_league:
                             eo_df = pd.DataFrame(eo_data).sort_values(by="Skutečné EO (%)", ascending=False)
                             
                             st.dataframe(
-                                eo_df.style.format({"Skutečné EO (%)": "{:.0f} %"})\
-                                .background_gradient(cmap='Reds', subset=['Skutečné EO (%)']),
-                                use_container_width=True, hide_index=True
+                                eo_df,
+                                use_container_width=True, 
+                                hide_index=True,
+                                column_config={
+                                    "Skutečné EO (%)": st.column_config.ProgressColumn(
+                                        "Skutečné EO (%)",
+                                        format="%d %%",
+                                        min_value=0,
+                                        max_value=300,
+                                    )
+                                }
                             )
                         else:
                             st.warning("Nepodařilo se načíst detaily rivalů (možná probíhá aktualizace kola).")
@@ -954,7 +962,8 @@ with tab2:
                 elif val == 4: bg, text = '#ff4e11', 'white'
                 elif val == 5: bg, text = '#8B0000', 'white'
                 else: bg, text = '', ''
-                styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold;'
+                styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold
+;'
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
