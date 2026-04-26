@@ -824,7 +824,7 @@ with tab4:
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):        
 if not api_key:
-            st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
+st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
         elif not news_text:
             st.warning("⚠️ Nejprve vlož nějaký text k analýze.")
         else:
