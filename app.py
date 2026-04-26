@@ -399,8 +399,7 @@ with tab1:
                 
                 current_squad_5gw_proj = current_squad_df['projected_5gw_fdr'].sum()
 
-                prob = pulp.
-LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
+                prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
                 projections = dict(zip(df['id'], df['projected_5gw_fdr']))
