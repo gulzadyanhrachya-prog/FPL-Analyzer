@@ -318,8 +318,8 @@ def get_best_xi(squad_df):
     
     bench_df = squad.loc[bench_idx]
     
-    captain_
-points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
+    captain_points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
+    total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
     
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
@@ -408,7 +408,11 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs([
+    "🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", 
+    "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", 
+    "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"
+])
 
 # --- HLAVNÍ DASHBOARD ---
 with tab_home:
@@ -419,7 +423,8 @@ with tab_home:
         current_squad_df = df[df['id'].isin(current_squad_ids)]
         
         c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_squad_df)
-        team_value = current_squad_df['now_cost'].sum() + bank
+        team_value = current_squad_df['now_cost'].sum() +
+ bank
         
         st.subheader("📊 Rychlý přehled")
         col1, col2, col3, col4 = st.columns(4)
@@ -820,8 +825,7 @@ with tab5:
                             
                             st.markdown(f"**Očekávané body týmu:** {sum([projections[w][i] for i in df['id'] if squad[i][w].varValue == 1]):.1f}")
                             
-                            if not t_
-in and not t_out:
+                            if not t_in and not t_out:
                                 st.info("🔄 Rolování přestupu (Žádná akce)")
                             else:
                                 for p in t_out: st.error(f"❌ OUT: {p}")
@@ -900,7 +904,8 @@ with tab2:
     display_df = filtered_df[['unique_name', 'position', 'now_cost', 'price_trend', 'net_transfers', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
     display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Cenový Trend', 'Čisté Přestupy', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
-    diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
+    diff_df = filtered_df[['
+Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     def style_fixtures(data, diffs):
