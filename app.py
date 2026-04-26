@@ -236,8 +236,7 @@ def load_fpl_data():
 
     df['odds_goal'] = odds_goal
     df['odds_cs'] = odds_cs
-    df['odds_1
-gw_pts'] = odds_implied_pts
+    df['odds_1gw_pts'] = odds_implied_pts
     
     df['xG_90'] = pd.to_numeric(df['expected_goals'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
     df['xA_90'] = pd.to_numeric(df['expected_assists'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
