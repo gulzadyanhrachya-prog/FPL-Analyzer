@@ -4,3 +4,4 @@ requests
 pulp
 scipy
 plotly
+google-generativeai
