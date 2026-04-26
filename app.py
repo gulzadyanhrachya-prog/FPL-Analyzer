@@ -7,9 +7,31 @@ import pulp
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
 st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0)")
 
+# --- INICIALIZACE PAMĚTI (Session State) ---
+# Aby si aplikace pamatovala tvůj tým po kliknutí na tlačítko
+if 'my_team' not in st.session_state:
+    st.session_state['my_team'] = []
+if 'bank' not in st.session_state:
+    st.session_state['bank'] = 0.0
+
 # --- 1. DATOVÁ ČÁST (S využitím Cache) ---
-@st.cache_data(ttl=3600) # Data se aktualizují maximálně jednou za hodinu
+@st.cache_data(ttl=3600)
+def get_current_gw():
+    """Zjistí aktuální odehrané kolo (Gameweek)"""
+    url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
+    res = requests.get(url).json()
+    for event in res['events']:
+        if event['is_current']:
+            return event['id']
+    # Pokud se zrovna nehraje, vezme to nejbližší další
+    for event in res['events']:
+        if event['is_next']:
+            return event['id']
+    return 1
+
+@st.cache_data(ttl=3600)
 def load_fpl_data():
+    """Stáhne a připraví kompletní data o hráčích a losu"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     response = requests.get(url).json()
     
@@ -43,16 +65,57 @@ def load_fpl_data():
     df = df[df['minutes'] > 500].copy()
     return df
 
+def fetch_manager_team(manager_id, current_gw, df):
+    """Stáhne tým konkrétního manažera podle jeho ID"""
+    url = f'https://fantasy.premierleague.com/api/entry/{manager_id}/event/{current_gw}/picks/'
+    res = requests.get(url)
+    if res.status_code != 200:
+        return None, None
+    
+    data = res.json()
+    # Získáme ID hráčů a převedeme je na jména
+    player_ids = [pick['element'] for pick in data['picks']]
+    team_names = df[df['id'].isin(player_ids)]['web_name'].tolist()
+    
+    # Získáme peníze v bance
+    bank = data['entry_history']['bank'] / 10.0
+    return team_names, bank
+
 df = load_fpl_data()
 
 # --- 2. BOČNÍ PANEL (Uživatelské vstupy) ---
+st.sidebar.header("📥 Import týmu")
+manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):", help="Své ID najdeš v URL adrese, když si na webu FPL otevřeš záložku 'Points'.")
+
+if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
+    if manager_id.isdigit():
+        with st.spinner("Stahuji data z FPL..."):
+            gw = get_current_gw()
+            fetched_team, fetched_bank = fetch_manager_team(manager_id, gw, df)
+            
+            if fetched_team:
+                st.session_state['my_team'] = fetched_team
+                st.session_state['bank'] = fetched_bank
+                st.sidebar.success("✅ Tým úspěšně načten!")
+            else:
+                st.sidebar.error("❌ Tým nenalezen. Zkontroluj ID.")
+    else:
+        st.sidebar.error("⚠️ ID musí obsahovat pouze čísla.")
+
+st.sidebar.divider()
+
 st.sidebar.header("⚙️ Tvoje nastavení")
-bank = st.sidebar.number_input("Peníze v bance (miliony):", min_value=0.0, max_value=100.0, value=0.5, step=0.1)
+# Hodnoty se nyní berou z paměti (Session State), takže se po importu samy přepíšou!
+bank = st.sidebar.number_input("Peníze v bance (miliony):", min_value=0.0, max_value=100.0, value=float(st.session_state['bank']), step=0.1)
 free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1)
 
 st.sidebar.subheader("Tvůj aktuální tým")
 all_player_names = sorted(df['web_name'].tolist())
-my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, max_selections=15)
+
+# Ošetření, aby se do výběru dostala jen platná jména
+valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
+
+my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
 # --- 3. HLAVNÍ OBSAH (Záložky) ---
 tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📊 Datové centrum", "🎙️ AI Analýza zranění"])
