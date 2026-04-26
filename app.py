@@ -4,6 +4,7 @@ import requests
 import pulp
 import json
 import google.generativeai as genai
+import concurrent.futures
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -28,6 +29,34 @@ def get_current_gw():
         if event['is_previous']: return event['id']
     return 1
 
+def calc_position_index(pos, mins, xg, xa, xgc, cs, saves):
+    """Vypočítá očekávané body na 90 minut podle pozice a pokročilých statistik"""
+    if mins == 0: return 0.0
+    p90 = mins / 90.0
+    
+    xg_90 = float(xg) / p90
+    xa_90 = float(xa) / p90
+    xgc_90 = float(xgc) / p90
+    cs_90 = float(cs) / p90
+    saves_90 = float(saves) / p90
+
+    base_pts = 2.0 
+    
+    if pos == 'GK':
+        return base_pts + (saves_90 * 0.33) + (cs_90 * 4.0) - (xgc_90 * 0.5)
+    elif pos == 'DEF':
+        return base_pts + (xg_90 * 6.0) + (xa_90 * 3.0) + (cs_90 * 4.0) - (xgc_90 * 0.5)
+    elif pos == 'MID':
+        return base_pts + (xg_90 * 5.0) + (xa_90 * 3.0) + (cs_90 * 1.0)
+    elif pos == 'FWD':
+        return base_pts + (xg_90 * 4.0) + (xa_90 * 3.0)
+    return 0.0
+
+def fetch_player_history(player_id):
+    url = f'https://fantasy.premierleague.com/api/element-summary/{player_id}/'
+    res = requests.get(url).json()
+    return player_id, res['history']
+
 @st.cache_data(ttl=3600)
 def load_fpl_data():
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
@@ -44,7 +73,56 @@ def load_fpl_data():
     df['now_cost'] = df['now_cost'] / 10.0
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
-    df['form'] = df['form'].astype(float)
+    
+    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (Season + Last 5) ---
+    active_players = df[df['minutes'] > 100]['id'].tolist()
+    history_data = {}
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(fetch_player_history, pid): pid for pid in active_players}
+        for future in concurrent.futures.as_completed(futures):
+            pid, hist = future.result()
+            history_data[pid] = hist
+
+    custom_forms = []
+    for idx, row in df.iterrows():
+        pid = row['id']
+        pos = row['position']
+        
+        if pid not in history_data or row['minutes'] == 0:
+            custom_forms.append(0.0)
+            continue
+            
+        hist = history_data[pid]
+        
+        season_idx = calc_position_index(
+            pos, row['minutes'], row['expected_goals'], row['expected_assists'], 
+            row['expected_goals_conceded'], row['clean_sheets'], row['saves']
+        )
+        
+        played_matches = [m for m in hist if m['minutes'] > 0]
+        last_5 = played_matches[-5:]
+        
+        if len(last_5) > 0:
+            l5_mins = sum(m['minutes'] for m in last_5)
+            l5_xg = sum(float(m['expected_goals']) for m in last_5)
+            l5_xa = sum(float(m['expected_assists']) for m in last_5)
+            l5_xgc = sum(float(m['expected_goals_conceded']) for m in last_5)
+            l5_cs = sum(m['clean_sheets'] for m in last_5)
+            l5_saves = sum(m['saves'] for m in last_5)
+            l5_idx = calc_position_index(pos, l5_mins, l5_xg, l5_xa, l5_xgc, l5_cs, l5_saves)
+        else:
+            l5_idx = season_idx
+            
+        recent_5_all = hist[-5:]
+        avg_mins_recent = sum(m['minutes'] for m in recent_5_all) / 5.0 if len(recent_5_all) > 0 else 0
+        
+        blended_idx = (season_idx * 0.3) + (l5_idx * 0.7)
+        final_form = blended_idx * (avg_mins_recent / 90.0)
+        
+        custom_forms.append(max(0.0, final_form))
+
+    df['form'] = custom_forms
     
     # --- AUTOMATICKÁ ZRANĚNÍ Z FPL API ---
     df['chance_of_playing_next_round'] = pd.to_numeric(df['chance_of_playing_next_round'], errors='coerce').fillna(100)
@@ -153,7 +231,15 @@ def get_best_xi(squad_df):
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
 # Načtení dat
-df = load_fpl_data()
+with st.spinner("Stahuji data a počítám pokročilou formu hráčů (xPts)..."):
+    df = load_fpl_data()
+
+# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
+if st.session_state['nlp_modifiers']:
+    for mod in st.session_state['nlp_modifiers']:
+        idx = df['web_name'] == mod['web_name']
+        df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
 
 # --- 2. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
@@ -188,8 +274,15 @@ all_player_names = sorted(df['unique_name'].tolist())
 valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
 my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
+if st.session_state['nlp_modifiers']:
+    st.sidebar.divider()
+    st.sidebar.subheader("🏥 Aktivní AI hlášení z tiskovek")
+    for mod in st.session_state['nlp_modifiers']:
+        if mod['xMins_multiplier'] < 1.0:
+            st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
+
 # --- 3. HLAVNÍ OBSAH ---
-tab1, tab2 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker"])
+tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🧠 AI Analýza tiskovek"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -273,6 +366,7 @@ with tab1:
                         with col:
                             health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                             st.markdown(f"""
+
                             <div style="text-align: center; padding: 8px; background-color: rgba(255, 99, 71, 0.1); border-radius: 10px; border: 1px dashed rgba(255, 99, 71, 0.3);">
                                 <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}</div>
                                 <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
@@ -292,7 +386,6 @@ with tab1:
 with tab2:
     st.header("Kompletní databáze hráčů a Fixture Ticker")
     
-    # --- NOVINKA: Filtr podle klubů ---
     all_teams = sorted(df['team_name'].unique().tolist())
     selected_teams = st.multiselect("🔍 Filtrovat podle klubů:", all_teams, default=[], placeholder="Vyber jeden nebo více týmů...")
     
@@ -302,7 +395,7 @@ with tab2:
         filtered_df = df
     
     display_df = filtered_df[['unique_name', 'position', 'now_cost', 'form', 'chance_of_playing_next_round', 'news', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Šance hrát (%)', 'Zprávy', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma (xPts)', 'Šance hrát (%)', 'Zprávy', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
@@ -322,7 +415,50 @@ with tab2:
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
-        'Cena': "{:.1f}", 'Forma': "{:.1f}", 'Šance hrát (%)': "{:.0f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
+        'Cena': "{:.1f}", 'Forma (xPts)': "{:.2f}", 'Šance hrát (%)': "{:.0f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
+
+with tab3:
+    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
+    st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
+    
+    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
+    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
+    
+    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
+        if not news_text:
+            st.warning("Nejprve vlož nějaký text.")
+        else:
+            with st.spinner("AI čte text a hledá zranění..."):
+                try:
+                    if api_key == "":
+                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
+                        demo_json = """
+                        {
+                            "players": [
+                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
+                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
+                            ]
+                        }
+                        """
+                        extracted_data = json.loads(demo_json)['players']
+                    else:
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+                        prompt = """
+                        Jsi expert na Fantasy Premier League. Přečti si text.
+                        Vrať POUZE validní JSON ve formátu:
+                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
+                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
+                        """
+                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
+                        extracted_data = json.loads(response.text)['players']
+                    
+                    st.session_state['nlp_modifiers'] = extracted_data
+                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
