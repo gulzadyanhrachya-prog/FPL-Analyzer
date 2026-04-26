@@ -921,8 +921,7 @@ with tab6:
                 st.progress(min(diff['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {diff['Goal_Prob']:.1f}%")
 
         st.divider()
-        st.subheader("📊 Anal
-ýza rizika (Floor vs. Ceiling)")
+        st.subheader("📊 Analýza rizika (Floor vs. Ceiling)")
 
         fig_cap = go.Figure()
         fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
