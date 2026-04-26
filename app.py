@@ -20,7 +20,6 @@ def get_current_gw():
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     
-    # FPL API skrývá týmy pro budoucí kola. Musíme vzít to aktuální nebo minulé.
     for event in res['events']:
         if event['is_current']:
             return event['id']
@@ -39,7 +38,6 @@ def load_fpl_data():
     team_mapping = dict(zip(teams_df['id'], teams_df['name']))
     df['team_name'] = df['team'].map(team_mapping)
     
-    # OPRAVA 1: Unikátní jména (např. "Gabriel (Arsenal)") aby nepadal multiselect
     df['unique_name'] = df['web_name'] + " (" + df['team_name'] + ")"
     
     df['now_cost'] = df['now_cost'] / 10.0
@@ -62,24 +60,26 @@ def load_fpl_data():
     df['fdr_multiplier'] = df['team'].map(team_multiplier)
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier']
     
-    # OPRAVA 2: Odstraněna filtrace minut! 
-    # Pokud máš v týmu náhradníka, co nehraje, dřív ho to smazalo a nenačetlo ti to 15 hráčů.
     return df
-
 
 def fetch_manager_team(manager_id, current_gw, df):
     url = f'https://fantasy.premierleague.com/api/entry/{manager_id}/event/{current_gw}/picks/'
     res = requests.get(url)
     if res.status_code != 200:
-        return None, None
+        return None, None, current_gw
     
     data = res.json()
-    player_ids = [pick['element'] for pick in data['picks']]
     
-    # Použijeme naše nová unikátní jména
+    # OPRAVA: Detekce Free Hitu
+    # Pokud byl v tomto kole hrán Free Hit, skutečný tým je ten z předchozího kola
+    if data.get('active_chip') == 'freehit':
+        return fetch_manager_team(manager_id, current_gw - 1, df)
+        
+    player_ids = [pick['element'] for pick in data['picks']]
     team_names = df[df['id'].isin(player_ids)]['unique_name'].tolist()
     bank = data['entry_history']['bank'] / 10.0
-    return team_names, bank
+    
+    return team_names, bank, current_gw
 
 df = load_fpl_data()
 
@@ -91,12 +91,17 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
     if manager_id.isdigit():
         with st.spinner("Stahuji data z FPL..."):
             gw = get_current_gw()
-            fetched_team, fetched_bank = fetch_manager_team(manager_id, gw, df)
+            fetched_team, fetched_bank, real_gw = fetch_manager_team(manager_id, gw, df)
             
             if fetched_team and len(fetched_team) == 15:
                 st.session_state['my_team'] = fetched_team
                 st.session_state['bank'] = fetched_bank
-                st.sidebar.success(f"✅ Tým úspěšně načten z Gameweeku {gw}!")
+                
+                # Upozornění pro uživatele, pokud byl detekován Free Hit
+                if real_gw < gw:
+                    st.sidebar.warning(f"⚠️ Detekován Free Hit v GW{gw}! Načten tvůj permanentní tým z GW{real_gw}.")
+                else:
+                    st.sidebar.success(f"✅ Tým úspěšně načten z Gameweeku {gw}!")
             else:
                 st.sidebar.error("❌ Nepodařilo se načíst tým. Možná zadáváš ID před začátkem kola, nebo je ID špatné.")
     else:
