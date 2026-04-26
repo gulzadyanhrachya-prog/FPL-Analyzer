@@ -6,7 +6,7 @@ import json
 import concurrent.futures
 import numpy as np
 from scipy.stats import poisson
-import google.generativeai as genai
+import plotly.graph_objects as go
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -182,11 +182,9 @@ def load_fpl_data():
     df['fdr_multiplier_5gw'] = df['team'].map(team_multiplier_5gw)
     df['fdr_multiplier_1gw'] = df['team'].map(team_multiplier_1gw)
     
-    # ZÁKLADNÍ MODEL (Čistě naše data)
     df['model_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw'] * df['health_multiplier']
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw'] * df['health_multiplier']
     
-    # --- NOVINKA: SIMULACE SÁZKOVÝCH KURZŮ (Odds Compiler) ---
     cs_odds_map = {1: 1.80, 2: 2.20, 3: 3.50, 4: 5.50, 5: 8.00} 
     
     odds_goal = []
@@ -225,6 +223,19 @@ def load_fpl_data():
     df['odds_goal'] = odds_goal
     df['odds_cs'] = odds_cs
     df['odds_1gw_pts'] = odds_implied_pts
+    
+    # --- PŘÍPRAVA DAT PRO RADAROVÝ GRAF ---
+    df['xG_90'] = pd.to_numeric(df['expected_goals'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
+    df['xA_90'] = pd.to_numeric(df['expected_assists'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
+    df['Goal_Prob'] = 100.0 / df['odds_goal']
+    df['CS_Prob'] = 100.0 / df['odds_cs']
+    
+    df['xG_pct'] = df['xG_90'].rank(pct=True) * 100
+    df['xA_pct'] = df['xA_90'].rank(pct=True) * 100
+    df['Form_pct'] = df['form'].rank(pct=True) * 100
+    df['Proj_pct'] = df['model_1gw_fdr'].rank(pct=True) * 100
+    df['Goal_pct'] = df['Goal_Prob'].rank(pct=True) * 100
+    df['CS_pct'] = df['CS_Prob'].rank(pct=True) * 100
     
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
@@ -318,12 +329,10 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
-# --- NOVINKA: HYBRIDNÍ MODEL (Váha kurzů) ---
 st.sidebar.header("🎲 Hybridní Model (Kurzy)")
-odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_value=0, max_value=100, value=50, step=10, help="0% = Pouze náš matematický model. 100% = Pouze sázkové kurzy. 50% = Ideální mix obojího.")
+odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_value=0, max_value=100, value=50, step=10)
 odds_ratio = odds_weight / 100.0
 
-# Aplikace hybridního modelu do hlavní projekce
 df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * (1.0 - odds_ratio)) + (df['odds_1gw_pts'] * odds_ratio)
 
 st.sidebar.divider()
@@ -352,7 +361,7 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Kurzy", "🧠 AI Analýza tiskovek"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -411,7 +420,8 @@ with tab1:
                     st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
-                        if not players_in_pos.empty:
+                        if
+ not players_in_pos.empty:
                             cols = st.columns(len(players_in_pos))
                             for col, (_, row) in zip(cols, players_in_pos.iterrows()):
                                 with col:
@@ -419,8 +429,7 @@ with tab1:
                                     if row['id'] == cap_id: role = " <span style='color: #FFD700;'>**(C)**</span>"
                                     elif row['id'] == vc_id: role = " *(VC)*"
                                     
-                                    health_icon = f" <span title='{row['news']
-}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                                    health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                                         
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
@@ -491,44 +500,75 @@ with tab2:
     st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
-    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
+    st.header("🕸️ Porovnávač hráčů (Radarový graf)")
+    st.write("Porovnej dva hráče vizuálně. Graf ukazuje **percentily** (0-100). Hodnota 90 znamená, že hráč je lepší než 90 % ligy v dané statistice.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        p1_name = st.selectbox("Vyber 1. hráče:", all_player_names, index=0)
+    with col2:
+        p2_name = st.selectbox("Vyber 2. hráče:", all_player_names, index=1)
+
+    if p1_name and p2_name:
+        p1 = df[df['unique_name'] == p1_name].iloc[0]
+        p2 = df[df['unique_name'] == p2_name].iloc[0]
+
+        categories = ['Forma (xPts)', 'Projekce (1 kolo)', 'Šance na Gól', 'Šance na ČK', 'Oček. Asistence (xA/90)', 'Oček. Góly (xG/90)']
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatterpolar(
+            r=[p1['Form_pct'], p1['Proj_pct'], p1['Goal_pct'], p1['CS_pct'], p1['xA_pct'], p1['xG_pct']],
+            theta=categories,
+            fill='toself',
+            name=p1['web_name'],
+            line_color='blue'
+        ))
+
+        fig.add_trace(go.Scatterpolar(
+            r=[p2['Form_pct'], p2['Proj_pct'], p2['Goal_pct'], p2['CS_pct'], p2['xA_pct'], p2['xG_pct']],
+            theta=categories,
+            fill='toself',
+            name=p2['web_name'],
+            line_color='red'
+        ))
+
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+            showlegend=True,
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("📊 Surová data")
+        comp_df = pd.DataFrame({
+            "Statistika": ["Cena", "Forma (xPts)", "Projekce (1 kolo)", "Šance na Gól", "Šance na Čisté konto", "xG na 90 min", "xA na 90 min"],
+            p1['web_name']: [f"{p1['now_cost']}m", f"{p1['form']:.2f}", f"{p1['projected_1gw_fdr']:.2f}", f"{p1['Goal_Prob']:.1f} %", f"{p1['CS_Prob']:.1f} %", f"{p1['xG_90']:.2f}", f"{p1['xA_90']:.2f}"],
+            p2['web_name']: [f"{p2['now_cost']}m", f"{p2['form']:.2f}", f"{p2['projected_1gw_fdr']:.2f}", f"{p2['Goal_Prob']:.1f} %", f"{p2['CS_Prob']:.1f} %", f"{p2['xG_90']:.2f}", f"{p2['xA_90']:.2f}"]
+        })
+        st.dataframe(comp_df, hide_index=True, use_container_width=True)
+
+with tab4:
+    st.header("🧠 AI Analýza tiskových konferencí (Demo)")
     st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
     
-    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
-    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
+    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
         if not news_text:
             st.warning("Nejprve vlož nějaký text.")
         else:
             with st.spinner("AI čte text a hledá zranění..."):
-                try:
-                    if api_key == "":
-                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
-                        demo_json = """
-                        {
-                            "players": [
-                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
-                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
-                            ]
-                        }
-                        """
-                        extracted_data = json.loads(demo_json)['players']
-                    else:
-                        genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
-                        prompt = """
-                        Jsi expert na Fantasy Premier League. Přečti si text.
-                        Vrať POUZE validní JSON ve formátu:
-                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
-                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
-                        """
-                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
-                        extracted_data = json.loads(response.text)['players']
-                    
-                    st.session_state['nlp_modifiers'] = extracted_data
-                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
+                demo_json = """
+                {
+                    "players": [
+                        {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
+                        {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
+                    ]
+                }
+                """
+                extracted_data = json.loads(demo_json)['players']
+                st.session_state['nlp_modifiers'] = extracted_data
+                st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                st.rerun()
