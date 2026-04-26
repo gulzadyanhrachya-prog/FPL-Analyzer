@@ -402,7 +402,8 @@ with tab1:
                 prob += pulp.lpSum([projections[i] * player_vars[i] for i in df['id']])
                 prob += pulp.lpSum([player_vars[i] for i in df['id']]) == 15
                 prob += pulp.lpSum([costs[i] * player_vars[i] for i in df['id']]) <= total_budget
-                prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
+                prob += pulp.lpSum([player
+_vars[i] for i in df[df['position'] == 'GK']['id']]) == 2
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'DEF']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'MID']['id']]) == 5
                 prob += pulp.lpSum([player_vars[i] for i in df[df['position'] == 'FWD']['id']]) == 3
@@ -440,8 +441,9 @@ with tab1:
                             
                     st.divider()
                     
-                    st.subheader("🏟️ Vizuální
- hřiště (Příští kolo)")
+                    # OPRAVENÝ ŘÁDEK: Odstraněno zalomení řádku v řetězci
+                    st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
+                    
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
                         if not players_in_pos.empty:
