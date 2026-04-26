@@ -748,8 +748,7 @@ with tab1:
                         
                     col_met1, col_met2, col_met3 = st.columns(3)
                     col_met1.metric("Zisk z přestupu (Celý tým na 5 kol)", f"+{new_squad_5gw_proj - current_squad_5gw_proj:.1f} bodů")
-                    col_met2.metric(pts_
-label, f"{expected_pts_display:.1f} bodů")
+                    col_met2.metric(pts_label, f"{expected_pts_display:.1f} bodů")
                     col_met3.metric("Zůstatek v bance", f"{total_budget - new_squad_df['now_cost'].sum():.1f} m")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
