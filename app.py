@@ -224,7 +224,6 @@ def load_fpl_data():
     df['odds_cs'] = odds_cs
     df['odds_1gw_pts'] = odds_implied_pts
     
-    # --- PŘÍPRAVA DAT PRO RADAROVÝ GRAF ---
     df['xG_90'] = pd.to_numeric(df['expected_goals'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
     df['xA_90'] = pd.to_numeric(df['expected_assists'], errors='coerce').fillna(0) / np.maximum(df['minutes'], 1) * 90
     df['Goal_Prob'] = 100.0 / df['odds_goal']
@@ -379,7 +378,8 @@ with tab1:
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
                 projections = dict(zip(df['id'], df['projected_5gw_fdr']))
-                costs = dict(zip(df['id'], df['now_cost']))
+                costs = dict(zip(df['id'], df['now_cost
+']))
                 
                 prob += pulp.lpSum([projections[i] * player_vars[i] for i in df['id']])
                 prob += pulp.lpSum([player_vars[i] for i in df['id']]) == 15
@@ -420,8 +420,7 @@ with tab1:
                     st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
-                        if
- not players_in_pos.empty:
+                        if not players_in_pos.empty:
                             cols = st.columns(len(players_in_pos))
                             for col, (_, row) in zip(cols, players_in_pos.iterrows()):
                                 with col:
