@@ -470,7 +470,7 @@ with tab_home:
             with col:
                 st.markdown(f"**{row['web_name']}**")
                 st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.
-1f} (Lepší než {int(row['Form_pct'])}% ligy)")
+                                                                            1f} (Lepší než {int(row['Form_pct'])}% ligy)")
                 
     else:
         st.info("👋 Vítej v Ultimátním FPL AI Managerovi!")
