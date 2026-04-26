@@ -329,8 +329,7 @@ manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
 
 if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
     if manager_id.isdigit():
-        with st.spinner("Stahuji data z FPL
-..."):
+        with st.spinner("Stahuji data z FPL..."):
             gw = get_current_gw()
             fetched_team, fetched_bank, real_gw = fetch_manager_team(manager_id, gw, df)
             
