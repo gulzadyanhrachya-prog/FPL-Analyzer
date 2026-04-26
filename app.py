@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 6.0 - Všechny Žolíky)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 7.0 - Finální Dashboard)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -347,7 +347,7 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
-# --- NOVINKA: VŠECHNY ŽOLÍKY (CHIPS) ---
+# --- VŠECHNY ŽOLÍKY (CHIPS) ---
 st.sidebar.header("🃏 Strategie žolíků")
 active_chip = st.sidebar.radio(
     "Aktivovat čip pro příští kolo:", 
@@ -384,7 +384,8 @@ free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1, disab
 st.sidebar.subheader("Tvůj aktuální tým")
 all_player_names = sorted(df['unique_name'].tolist())
 valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
-my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
+my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_
+player_names, default=valid_team, max_selections=15)
 
 if st.session_state['nlp_modifiers']:
     st.sidebar.divider()
@@ -394,7 +395,67 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+# PŘIDÁNA NOVÁ ZÁLOŽKA PRO HLAVNÍ DASHBOARD (TAB HOME)
+tab_home, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+
+# --- NOVINKA: HLAVNÍ DASHBOARD ---
+with tab_home:
+    st.header("🏠 Hlavní Dashboard manažera")
+    
+    if len(my_team) == 15:
+        current_squad_ids = df[df['unique_name'].isin(my_team)]['id'].tolist()
+        current_squad_df = df[df['id'].isin(current_squad_ids)]
+        
+        # Získání nejlepší sestavy a bodů pro aktuální tým
+        c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_squad_df)
+        team_value = current_squad_df['now_cost'].sum() + bank
+        
+        st.subheader("📊 Rychlý přehled")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Hodnota týmu", f"{team_value:.1f} m")
+        col2.metric("V bance", f"{bank:.1f} m")
+        col3.metric("Očekávané body (Příští kolo)", f"{c_xi_pts:.1f} b.")
+        col4.metric("Volné přestupy", f"{free_transfers}")
+        
+        st.divider()
+        
+        col_a, col_b = st.columns([1, 1])
+        
+        with col_a:
+            st.subheader("🏥 AI Zdravotní prohlídka")
+            injured = current_squad_df[current_squad_df['health_multiplier'] < 1.0]
+            if injured.empty:
+                st.success("✅ Všichni hráči ve tvém týmu jsou plně fit a připraveni hrát!")
+            else:
+                for _, row in injured.iterrows():
+                    st.error(f"**{row['web_name']}**: {row['news']} (Šance na start: {int(row['chance_of_playing_next_round'])}%)")
+                    
+        with col_b:
+            st.subheader("📅 Analýza losu (FDR)")
+            # Výpočet průměrné náročnosti losu pro celý tým na 5 kol
+            avg_fdr = current_squad_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].mean().mean()
+            st.metric("Průměrná náročnost losu (1-5, menší je lepší)", f"{avg_fdr:.2f}")
+            
+            if avg_fdr < 2.6:
+                st.success("🔥 Tvůj tým má před sebou skvělý los! Ideální čas na útok v žebříčku.")
+            elif avg_fdr > 3.2:
+                st.warning("⚠️ Tvůj tým čeká těžká série zápasů. Zvaž Wildcard nebo cílené přestupy.")
+            else:
+                st.info("⚖️ Los tvého týmu je průměrný. Zaměř se na formu jednotlivců.")
+                
+        st.divider()
+        st.subheader("⭐ Hvězdy týmu (Top 3 hráči ve formě)")
+        top_form = current_squad_df.sort_values(by='form', ascending=False).head(3)
+        cols = st.columns(3)
+        for col, (_, row) in zip(cols, top_form.iterrows()):
+            with col:
+                st.markdown(f"**{row['web_name']}**")
+                st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.1f} (Lepší než {int(row['Form_pct'])}% ligy)")
+                
+    else:
+        st.info("👋 Vítej v Ultimátním FPL AI Managerovi!")
+        st.write("Tento nástroj kombinuje stochastickou matematiku, lineární programování a umělou inteligenci od Googlu, aby ti pomohl vyhrát tvou mini-ligu.")
+        st.write("👉 **Pro zobrazení dashboardu si v levém panelu stáhni svůj tým (zadej FPL ID) nebo ručně vyber 15 hráčů.**")
 
 with tab1:
     st.header("Matematický návrh přestupů (Jednorázový)")
@@ -411,12 +472,9 @@ with tab1:
                 prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
-                # --- NOVINKA: LOGIKA FREE HITU ---
                 if simulate_freehit:
-                    # Free Hit optimalizuje POUZE na 1 kolo dopředu
                     projections = dict(zip(df['id'], df['projected_1gw_fdr']))
                 else:
-                    # Vše ostatní (včetně Bench Boostu) optimalizuje na 5 kol
                     projections = dict(zip(df['id'], df['projected_5gw_fdr']))
                     
                 costs = dict(zip(df['id'], df['now_cost']))
@@ -432,7 +490,6 @@ with tab1:
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
 
-                # Omezovač přestupů se vypne, pokud je aktivní Wildcard nebo Free Hit
                 if not (simulate_wildcard or simulate_freehit):
                     prob += pulp.lpSum([player_vars[i] for i in current_squad_ids]) >= (15 - free_transfers)
 
@@ -448,7 +505,6 @@ with tab1:
                     players_out = current_squad_df[~current_squad_df['id'].isin(selected_ids)]
                     players_in = new_squad_df[~new_squad_df['id'].isin(current_squad_ids)]
                     
-                    # --- NOVINKA: VIZUÁLNÍ ZPĚTNÁ VAZBA PRO ČIPY ---
                     if simulate_wildcard:
                         st.success("🃏 WILDCARD AKTIVOVÁN: Tým byl kompletně přestavěn s výhledem na 5 kol!")
                     elif simulate_freehit:
@@ -495,7 +551,6 @@ with tab1:
                         with col:
                             health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                             
-                            # Pokud je aktivní Bench Boost, lavička svítí zeleně!
                             bg_color = "rgba(44, 186, 0, 0.15)" if simulate_bb else "rgba(255, 99, 71, 0.1)"
                             border_color = "rgba(44, 186, 0, 0.5)" if simulate_bb else "rgba(255, 99, 71, 0.3)"
                             
@@ -508,7 +563,6 @@ with tab1:
                     
                     st.divider()
                     
-                    # --- NOVINKA: VÝPOČET BODŮ PRO BENCH BOOST ---
                     if simulate_bb:
                         captain_bonus = new_start.loc[new_start['id'] == cap_id, 'projected_1gw_fdr'].values[0]
                         expected_pts_display = new_squad_df['projected_1gw_fdr'].sum() + captain_bonus
@@ -770,7 +824,8 @@ with tab4:
     news_text = st.text_area("Text z tiskovky (např. přepis slov Pepa Guardioly):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený, možná začne na lavičce...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
-        if not api_key:
+        
+if not api_key:
             st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
         elif not news_text:
             st.warning("⚠️ Nejprve vlož nějaký text k analýze.")
@@ -813,3 +868,6 @@ with tab4:
                         
                 except Exception as e:
                     st.error(f"❌ Chyba při komunikaci s AI nebo při zpracování dat: {e}")
+Tímto jsme v podstatě **dokončili vývoj kompletní aplikace**! Máš v rukou nástroj, který by se dal klidně prodávat jako prémiová služba. 
+
+Máš pocit, že nám ještě něco chybí, nebo jsi připravený to nasadit naostro a začít drtit svou mini-ligu? 🏆
