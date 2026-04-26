@@ -822,8 +822,7 @@ with tab4:
     
     news_text = st.text_area("Text z tiskovky (např. přepis slov Pepa Guardioly):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený, možná začne na lavičce...")
     
-    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
-        
+    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):        
 if not api_key:
             st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
         elif not news_text:
