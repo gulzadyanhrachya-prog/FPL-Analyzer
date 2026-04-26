@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 4.1 - Cloud Ready)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 5.0 - Captaincy Planner)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -313,7 +313,8 @@ def get_best_xi(squad_df):
 with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
     df = load_fpl_data()
 
-# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
+# --- APLIKACE NLP MODIFIKÁTORŮ Z T
+ISKOVEK ---
 if st.session_state['nlp_modifiers']:
     for mod in st.session_state['nlp_modifiers']:
         idx = df['web_name'] == mod['web_name']
@@ -385,7 +386,8 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab1, tab5, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+# PŘIDÁNA NOVÁ ZÁLOŽKA PRO KAPITÁNA (TAB 6)
+tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 with tab1:
     st.header("Matematický návrh přestupů (Jednorázový)")
@@ -581,6 +583,61 @@ with tab5:
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
+# --- NOVINKA: POKROČILÝ PLÁNOVAČ KAPITÁNŮ ---
+with tab6:
+    st.header("©️ Pokročilý Plánovač Kapitánů")
+    st.write("Rozhodování o kapitánovi vyhrává mini-ligy. Tento model analyzuje tvůj aktuální tým a rozkládá projekci na **Floor** (jistota bodů) a **Ceiling** (maximální potenciál).")
+
+    if len(my_team) > 0:
+        team_df = df[df['unique_name'].isin(my_team)].copy()
+
+        # Výpočet Floor (Základní body za start + případné čisté konto)
+        team_df['Floor'] = 2.0 * team_df['health_multiplier']
+        team_df.loc[team_df['position'].isin(['DEF', 'GK']), 'Floor'] += (team_df['CS_Prob'] / 100.0 * 4.0) * team_df['health_multiplier']
+        team_df.loc[team_df['position'] == 'MID', 'Floor'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
+
+        # Výpočet Ceiling (Projekce + extra šance na gól/asistenci a bonusy)
+        team_df['Ceiling'] = team_df['projected_1gw_fdr'] + (team_df['Goal_Prob'] / 100.0 * 5.0) + (team_df['xA_90'] * 0.5) + 1.5
+
+        # Vybereme top 5 kandidátů podle celkové projekce
+        top_caps = team_df.sort_values(by='projected_1gw_fdr', ascending=False).head(5)
+
+        if len(top_caps) >= 3:
+            c1, c2, c3 = st.columns(3)
+            cap = top_caps.iloc[0]
+            vc = top_caps.iloc[1]
+            diff = top_caps.iloc[2]
+
+            with c1:
+                st.success(f"👑 KAPITÁN (C): {cap['web_name']}")
+                st.markdown(f"**Zápas:** {cap['Zápas 1']} | **Projekce:** {cap['projected_1gw_fdr']:.1f} b.")
+                st.progress(min(cap['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {cap['Goal_Prob']:.1f}%")
+
+            with c2:
+                st.info(f"🥈 ZÁSTUPCE (VC): {vc['web_name']}")
+                st.markdown(f"**Zápas:** {vc['Zápas 1']} | **Projekce:** {vc['projected_1gw_fdr']:.1f} b.")
+                st.progress(min(vc['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {vc['Goal_Prob']:.1f}%")
+
+            with c3:
+                st.warning(f"🎲 DIFERENCIÁL: {diff['web_name']}")
+                st.markdown(f"**Zápas:** {diff['Zápas 1']} | **Projekce:** {diff['projected_1gw_fdr']:.1f} b.")
+                st.progress(min(diff['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {diff['Goal_Prob']:.1f}%")
+
+        st.divider()
+        st.subheader("📊 Analýza rizika (Floor vs. Ceiling)")
+
+        # Vykreslení skládaného grafu
+        fig_cap = go.Figure()
+        fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
+        fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
+        fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Ceiling'] - top_caps['projected_1gw_fdr'], name='Ceiling (Potenciál)', marker_color='#ff7f0e'))
+
+        fig_cap.update_layout(barmode='stack', title="Top 5 kandidátů na kapitána ve tvém týmu", xaxis_title="Hráč", yaxis_title="Body")
+        st.plotly_chart(fig_cap, use_container_width=True)
+
+    else:
+        st.info("👈 Nejprve si v levém panelu stáhni nebo vyber svůj tým.")
+
 with tab2:
     st.header("Kompletní databáze hráčů a Sázkové kurzy")
     
@@ -668,12 +725,10 @@ with tab3:
         })
         st.dataframe(comp_df, hide_index=True, use_container_width=True)
 
-# --- NOVINKA: BEZPEČNÁ INTEGRACE GEMINI API PRO GITHUB/STREAMLIT CLOUD ---
 with tab4:
     st.header("🧠 AI Analýza tiskových konferencí (Gemini 1.5 Flash)")
     st.write("Vlož text z tiskovky nebo novinky z Twitteru. Skutečná AI od Googlu text přečte, pochopí kontext zranění a automaticky upraví projekce hráčů v celém systému!")
     
-    # Zabezpečené načítání klíče
     api_key = ""
     if "GEMINI_API_KEY" in st.secrets:
         api_key = st.secrets["GEMINI_API_KEY"]
@@ -706,7 +761,8 @@ with tab4:
                     }}
                     
                     Pravidla pro xMins_multiplier:
-                    - 0.0 = Hráč je zraněný nebo suspendovaný a určitě nehraje.
+                    - 0.0 = H
+ráč je zraněný nebo suspendovaný a určitě nehraje.
                     - 0.5 = Hráč je nejistý (doubtful), má drobný šrám, nebo pravděpodobně začne na lavičce.
                     - 1.0 = Hráč je plně fit a připraven hrát.
                     
