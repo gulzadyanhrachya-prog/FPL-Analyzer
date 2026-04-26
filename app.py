@@ -92,7 +92,6 @@ def load_fpl_data():
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
     
-    # --- NOVINKA: PREDIKCE ZMĚN CEN ---
     df['transfers_in'] = pd.to_numeric(df['transfers_in_event'], errors='coerce').fillna(0)
     df['transfers_out'] = pd.to_numeric(df['transfers_out_event'], errors='coerce').fillna(0)
     df['net_transfers'] = df['transfers_in'] - df['transfers_out']
@@ -342,6 +341,12 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
+# --- NOVINKA: SIMULACE WILDCARDU ---
+st.sidebar.header("🃏 Strategie žolíků")
+simulate_wildcard = st.sidebar.toggle("Aktivovat Wildcard", value=False, help="Zruší limit přestupů a poskládá zcela nový tým z tvého rozpočtu.")
+
+st.sidebar.divider()
+
 st.sidebar.header("🎲 Hybridní Model (Kurzy)")
 odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_value=0, max_value=100, value=50, step=10)
 odds_ratio = odds_weight / 100.0
@@ -359,7 +364,7 @@ st.sidebar.divider()
 
 st.sidebar.header("⚙️ Tvoje nastavení")
 bank = st.sidebar.number_input("Peníze v bance (miliony):", min_value=0.0, max_value=100.0, value=float(st.session_state['bank']), step=0.1)
-free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1)
+free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1, disabled=simulate_wildcard)
 
 st.sidebar.subheader("Tvůj aktuální tým")
 all_player_names = sorted(df['unique_name'].tolist())
@@ -405,7 +410,9 @@ with tab1:
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
 
-                prob += pulp.lpSum([player_vars[i] for i in current_squad_ids]) >= (15 - free_transfers)
+                # --- NOVINKA: LOGIKA WILDCARDU ---
+                if not simulate_wildcard:
+                    prob += pulp.lpSum([player_vars[i] for i in current_squad_ids]) >= (15 - free_transfers)
 
                 prob.solve()
                 
@@ -419,19 +426,22 @@ with tab1:
                     players_out = current_squad_df[~current_squad_df['id'].isin(selected_ids)]
                     players_in = new_squad_df[~new_squad_df['id'].isin(current_squad_ids)]
                     
+                    if simulate_wildcard:
+                        st.success("🃏 WILDCARD AKTIVOVÁN: Tým byl kompletně přestavěn!")
+                    
                     st.subheader("🔄 Doporučené přestupy:")
                     col1, col2 = st.columns(2)
                     with col1:
                         for _, p_out in players_out.iterrows():
-                            st.error(f"❌ PRODEJ: {
-p_out['unique_name']} ({p_out['now_cost']}m) | Projekce: {p_out['projected_5gw_fdr']:.1f} b.")
+                            st.error(f"❌ PRODEJ: {p_out['unique_name']} ({p_out['now_cost']}m) | Projekce: {p_out['projected_5gw_fdr']:.1f} b.")
                     with col2:
                         for _, p_in in players_in.iterrows():
                             st.success(f"✅ KUP: {p_in['unique_name']} ({p_in['now_cost']}m) | Projekce: {p_in['projected_5gw_fdr']:.1f} b.")
                             
                     st.divider()
                     
-                    st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
+                    st.subheader("🏟️ Vizuální
+ hřiště (Příští kolo)")
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
                         if not players_in_pos.empty:
@@ -486,7 +496,6 @@ with tab2:
     else:
         filtered_df = df
     
-    # --- NOVINKA: Zobrazení Cenového trendu a čistých přestupů ---
     display_df = filtered_df[['unique_name', 'position', 'now_cost', 'price_trend', 'net_transfers', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
     display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Cenový Trend', 'Čisté Přestupy', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
