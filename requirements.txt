@@ -2,4 +2,4 @@ streamlit
 pandas
 requests
 pulp
-openai
+google-generativeai
