@@ -413,8 +413,7 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab_
-home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs([
+tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs([
     "🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", 
     "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", 
     "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"
