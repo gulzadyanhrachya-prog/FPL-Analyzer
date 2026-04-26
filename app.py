@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 7.0 - Finální Dashboard)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 8.0 - Live Tracker)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -274,17 +274,31 @@ def fetch_manager_team(manager_id, current_gw, df):
     bank = data['entry_history']['bank'] / 10.0
     return team_names, bank, current_gw
 
+# --- NOVÉ FUNKCE PRO LIVE TRACKER ---
+def fetch_live_manager_data(manager_id, gw):
+    url = f'https://fantasy.premierleague.com/api/entry/{manager_id}/event/{gw}/picks/'
+    res = requests.get(url)
+    if res.status_code != 200: return None
+    return res.json()
+
+def fetch_live_event_data(gw):
+    url = f'https://fantasy.premierleague.com/api/event/{gw}/live/'
+    res = requests.get(url)
+    if res.status_code != 200: return {}
+    data = res.json()
+    return {item['id']: item['stats'] for item in data.get('elements', [])}
+
 def get_best_xi(squad_df):
     squad = squad_df.sort_values(by='projected_1gw_fdr', ascending=False)
     
     gk = squad[squad['position'] == 'GK']
-    df = squad[squad['position'] == 'DEF']
+    df_pos = squad[squad['position'] == 'DEF']
     md = squad[squad['position'] == 'MID']
     fw = squad[squad['position'] == 'FWD']
     
     start_idx = [
         gk.index[0],
-        df.index[0], df.index[1], df.index[2],
+        df_pos.index[0], df_pos.index[1], df_pos.index[2],
         md.index[0], md.index[1],
         fw.index[0]
     ]
@@ -324,7 +338,8 @@ if st.session_state['nlp_modifiers']:
             df.loc[idx, f'proj_gw{i}'] *= mod['xMins_multiplier']
 
 # --- 3. BOČNÍ PANEL ---
-st.sidebar.header("📥 Import týmu")
+st.sidebar
+.header("📥 Import týmu")
 manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
 
 if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
@@ -394,7 +409,8 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab_home, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+# PŘIDÁNA NOVÁ ZÁLOŽKA PRO LIVE TRACKER (TAB LIVE)
+tab_home, tab_live, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔴 Live Gameweek", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 # --- HLAVNÍ DASHBOARD ---
 with tab_home:
@@ -404,7 +420,6 @@ with tab_home:
         current_squad_ids = df[df['unique_name'].isin(my_team)]['id'].tolist()
         current_squad_df = df[df['id'].isin(current_squad_ids)]
         
-        # Získání nejlepší sestavy a bodů pro aktuální tým
         c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_squad_df)
         team_value = current_squad_df['now_cost'].sum() + bank
         
@@ -430,7 +445,6 @@ with tab_home:
                     
         with col_b:
             st.subheader("📅 Analýza losu (FDR)")
-            # Výpočet průměrné náročnosti losu pro celý tým na 5 kol
             avg_fdr = current_squad_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].mean().mean()
             st.metric("Průměrná náročnost losu (1-5, menší je lepší)", f"{avg_fdr:.2f}")
             
@@ -454,6 +468,82 @@ with tab_home:
         st.info("👋 Vítej v Ultimátním FPL AI Managerovi!")
         st.write("Tento nástroj kombinuje stochastickou matematiku, lineární programování a umělou inteligenci od Googlu, aby ti pomohl vyhrát tvou mini-ligu.")
         st.write("👉 **Pro zobrazení dashboardu si v levém panelu stáhni svůj tým (zadej FPL ID) nebo ručně vyber 15 hráčů.**")
+
+# --- NOVINKA: LIVE GAMEWEEK TRACKER ---
+with tab_live:
+    st.header("🔴 Live Gameweek Tracker")
+    st.write("Sleduj své body, minuty a bonusy (BPS) v reálném čase během víkendu! Aplikace si stáhne tvé skutečné rozestavení a kapitána pro aktuální kolo.")
+
+    if manager_id and manager_id.isdigit():
+        if st.button("🔄 Aktualizovat živá data", type="primary"):
+            with st.spinner("Načítám živá data z FPL serverů..."):
+                gw = get_current_gw()
+                live_picks_data = fetch_live_manager_data(manager_id, gw)
+                live_event_data = fetch_live_event_data(gw)
+
+                if live_picks_data and live_event_data:
+                    real_active_chip = live_picks_data.get('active_chip', 'Žádný')
+                    picks = live_picks_data.get('picks', [])
+
+                    total_live_pts = 0
+                    live_rows = []
+
+                    for pick in picks:
+                        pid = pick['element']
+                        mult = pick['multiplier']
+                        is_c = pick['is_captain']
+                        is_vc = pick['is_vice_captain']
+
+                        stats = live_event_data.get(pid, {})
+                        pts = stats.get('total_points', 0)
+                        mins = stats.get('minutes', 0)
+                        bps = stats.get('bps', 0)
+
+                        live_pts = pts * mult
+                        total_live_pts += live_pts
+
+                        # Získání jména a pozice z našeho hlavního DataFrame
+                        p_match = df[df['id'] == pid]
+                        p_name = p_match['web_name'].values[0] if not p_match.empty else "Neznámý"
+                        p_pos = p_match['position'].values[0] if not p_match.empty else "-"
+
+                        role = ""
+                        if is_c: role = "👑 (C)"
+                        elif is_vc: role = "🥈 (VC)"
+
+                        status = "⚪ Nehrál"
+                        if mins > 0: status = "🟢 Hraje / Dohrál"
+
+                        live_rows.append({
+                            "Hráč": f"{p_name} {role}",
+                            "Pozice": p_pos,
+                            "Status": status,
+                            "Základ/Lavička": "Základ" if mult > 0 else "Lavička",
+                            "Minuty": mins,
+                            "BPS": bps,
+                            "Živé body": live_pts
+                        })
+
+                    st.subheader(f"🏆 Aktuální skóre pro GW {gw}: {total_live_pts} bodů")
+                    if real_active_chip and real_active_chip != 'Žádný':
+                        st.info(f"Aktivní čip v tomto kole: {real_active_chip.upper()}")
+
+                    live_df = pd.DataFrame(live_rows)
+                    
+                    # Obarvení tabulky (Základ vs Lavička)
+                    def style_live_rows(row):
+                        if row['Základ/Lavička'] == 'Lavička':
+                            return ['color: gray; font-style: italic;'] * len(row)
+                        elif '👑 (C)' in row['Hráč']:
+                            return ['background-color: rgba(255, 215, 0, 0.1); font-weight: bold;'] * len(row)
+                        return [''] * len(row)
+
+                    styled_live_df = live_df.style.apply(style_live_rows, axis=1)
+                    st.dataframe(styled_live_df, use_container_width=True, hide_index=True)
+                else:
+                    st.error("Nepodařilo se načíst živá data. Možná probíhá aktualizace FPL serverů nebo ještě nezačalo kolo.")
+    else:
+        st.info("👈 Zadej své FPL ID v levém panelu a stáhni svůj tým pro zobrazení Live dat.")
 
 with tab1:
     st.header("Matematický návrh přestupů (Jednorázový)")
@@ -731,7 +821,8 @@ with tab2:
     else:
         filtered_df = df
     
-    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'price_trend', 'net_transfers', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'price_trend', 'net_transfers', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 
+3', 'Zápas 4', 'Zápas 5']].copy()
     display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Cenový Trend', 'Čisté Přestupy', 'Kurz na Gól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
