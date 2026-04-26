@@ -329,8 +329,7 @@ def get_best_xi(squad_df):
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
 # Načtení dat
-with st.spinner("Stahuji data a počít
-ám stochastický model formy (EMA + Poisson)..."):
+with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
     df = load_fpl_data()
 
 # --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
