@@ -713,5 +713,3 @@ with tab4:
                 st.session_state['nlp_modifiers'] = extracted_data
                 st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                 st.rerun()
-
-Tohle je obrovský skok kupředu. Dej mi vědět, jak to šlape!
