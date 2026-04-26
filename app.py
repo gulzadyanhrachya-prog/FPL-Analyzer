@@ -32,9 +32,11 @@ def load_fpl_data():
     
     df = pd.DataFrame(response['elements'])
     teams_df = pd.DataFrame(response['teams'])
-    team_mapping = dict(zip(teams_df['id'], teams_df['name']))
-    df['team_name'] = df['team'].map(team_mapping)
     
+    team_mapping = dict(zip(teams_df['id'], teams_df['name']))
+    team_short_mapping = dict(zip(teams_df['id'], teams_df['short_name']))
+    
+    df['team_name'] = df['team'].map(team_mapping)
     df['unique_name'] = df['web_name'] + " (" + df['team_name'] + ")"
     df['now_cost'] = df['now_cost'] / 10.0
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
@@ -47,14 +49,28 @@ def load_fpl_data():
     team_fdr_5gw = {team_id: [] for team_id in teams_df['id']}
     team_fdr_1gw = {team_id: None for team_id in teams_df['id']}
     
+    # NOVÉ: Slovníky pro uložení textu zápasu (např. "ARS (H)") a jeho obtížnosti
+    team_fixtures_str = {team_id: [] for team_id in teams_df['id']}
+    team_fixtures_diff = {team_id: [] for team_id in teams_df['id']}
+    
     for f in fixtures_data:
-        for t in ['team_h', 'team_a']:
-            team_id = f[t]
-            diff = f[t + '_difficulty']
-            if len(team_fdr_5gw[team_id]) < 5:
-                team_fdr_5gw[team_id].append(diff)
-            if team_fdr_1gw[team_id] is None:
-                team_fdr_1gw[team_id] = diff
+        team_h = f['team_h']
+        team_a = f['team_a']
+        diff_h = f['team_h_difficulty']
+        diff_a = f['team_a_difficulty']
+        
+        if len(team_fdr_5gw[team_h]) < 5:
+            team_fdr_5gw[team_h].append(diff_h)
+            team_fixtures_str[team_h].append(f"{team_short_mapping[team_a]} (H)")
+            team_fixtures_diff[team_h].append(diff_h)
+            
+        if len(team_fdr_5gw[team_a]) < 5:
+            team_fdr_5gw[team_a].append(diff_a)
+            team_fixtures_str[team_a].append(f"{team_short_mapping[team_h]} (A)")
+            team_fixtures_diff[team_a].append(diff_a)
+            
+        if team_fdr_1gw[team_h] is None: team_fdr_1gw[team_h] = diff_h
+        if team_fdr_1gw[team_a] is None: team_fdr_1gw[team_a] = diff_a
             
     team_multiplier_5gw = {}
     team_multiplier_1gw = {}
@@ -72,6 +88,11 @@ def load_fpl_data():
     
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw']
     df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw']
+    
+    # NOVÉ: Přidání sloupců se zápasy do hlavního DataFrame
+    for i in range(5):
+        df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
+        df[f'Diff {i+1}'] = df['team'].apply(lambda x: team_fixtures_diff[x][i] if len(team_fixtures_diff[x]) > i else 3)
     
     return df
 
@@ -161,7 +182,7 @@ valid_team = [name for name in st.session_state['my_team'] if name in all_player
 my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
 # --- 3. HLAVNÍ OBSAH ---
-tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📊 Datové centrum", "🎙️ AI Analýza zranění"])
+tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🎙️ AI Analýza zranění"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -217,25 +238,17 @@ with tab1:
                             
                     st.divider()
                     
-                    # --- NOVÉ VIZUÁLNÍ HŘIŠTĚ ---
                     st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
-                    
-                    # Vykreslení základní sestavy po řadách (GK, DEF, MID, FWD)
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
                         if not players_in_pos.empty:
-                            # Vytvoříme tolik sloupců, kolik je hráčů v dané řadě
                             cols = st.columns(len(players_in_pos))
                             for col, (_, row) in zip(cols, players_in_pos.iterrows()):
                                 with col:
-                                    # Určení role (Kapitán / Zástupce)
                                     role = ""
-                                    if row['id'] == cap_id:
-                                        role = " <span style='color: #FFD700;'>**(C)**</span>"
-                                    elif row['id'] == vc_id:
-                                        role = " *(VC)*"
+                                    if row['id'] == cap_id: role = " <span style='color: #FFD700;'>**(C)**</span>"
+                                    elif row['id'] == vc_id: role = " *(VC)*"
                                         
-                                    # HTML/CSS kartička hráče
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
                                         <div style="font-size: 28px;">👕</div>
@@ -267,10 +280,41 @@ with tab1:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
 
 with tab2:
-    st.header("Kompletní databáze hráčů")
-    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'fdr_multiplier_1gw', 'projected_1gw_fdr', 'projected_5gw_fdr']]
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'FDR (Příští zápas)', 'Projekce (1 kolo)', 'Projekce (5 kol)']
-    st.dataframe(display_df.sort_values(by='Projekce (5 kol)', ascending=False), use_container_width=True)
+    st.header("Kompletní databáze hráč a Fixture Ticker")
+    st.write("Tabulku můžeš libovolně řadit. Barevné sloupce ukazují náročnost dalších 5 zápasů.")
+    
+    # Příprava dat pro zobrazení
+    display_df = df[['unique_name', 'position', 'now_cost', 'form', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    
+    # Příprava skrytých dat o obtížnosti pro obarvení buněk
+    diff_df = df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
+    diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    
+    # Funkce pro obarvení buněk podle FDR
+    def style_fixtures(data, diffs):
+        styles = pd.DataFrame('', index=data.index, columns=data.columns)
+        for col in ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']:
+            for idx in data.index:
+                val = diffs.loc[idx, col]
+                if val == 1: bg, text = '#006400', 'white'       # Tmavě zelená
+                elif val == 2: bg, text = '#2cba00', 'white'     # Zelená
+                elif val == 3: bg, text = '#a9a9a9', 'black'     # Šedá
+                elif val == 4: bg, text = '#ff4e11', 'white'     # Oranžovo-červená
+                elif val == 5: bg, text = '#8B0000', 'white'     # Tmavě červená
+                else: bg, text = '', ''
+                styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold;'
+        return styles
+
+    # Aplikace stylů a formátování čísel
+    styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
+        'Cena': "{:.1f}",
+        'Forma': "{:.1f}",
+        'Projekce (1 kolo)': "{:.1f}",
+        'Projekce (5 kol)': "{:.1f}"
+    })
+    
+    st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
     st.header("Zpracování tiskových konferencí (Demo)")
