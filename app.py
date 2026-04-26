@@ -318,7 +318,8 @@ def get_best_xi(squad_df):
     
     bench_df = squad.loc[bench_idx]
     
-    captain_points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
+    captain_
+points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
     total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
     
     return start_df, bench_df, captain_id, vc_id, total_xi_points
@@ -349,8 +350,7 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
             
             if fetched_team and len(fetched_team) == 15:
                 st.session_state['my_team'] = fetched_team
-                
-st.session_state['bank'] = fetched_bank
+                st.session_state['bank'] = fetched_bank
                 if real_gw < gw:
                     st.sidebar.warning(f"⚠️ Detekován Free Hit v GW{gw}! Načten tvůj permanentní tým z GW{real_gw}.")
                 else:
@@ -409,7 +409,6 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-# PŘIDÁNA NOVÁ ZÁLOŽKA PRO MINI-LIGY (TAB LEAGUE)
 tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 # --- HLAVNÍ DASHBOARD ---
@@ -543,7 +542,7 @@ with tab_live:
     else:
         st.info("👈 Zadej své FPL ID v levém panelu a stáhni svůj tým pro zobrazení Live dat.")
 
-# --- NOVINKA: ANALYZÁTOR MINI-LIG ---
+# --- ANALYZÁTOR MINI-LIG ---
 with tab_league:
     st.header("⚔️ Analyzátor Mini-lig (Rival Tracker)")
     st.write("Zadej ID své klasické mini-ligy. AI zanalyzuje týmy tvých největších rivalů (Top 10) a najde tvé největší diferenciály a hrozby!")
@@ -560,7 +559,6 @@ with tab_league:
                     
                     if res_league.status_code == 200:
                         league_data = res_league.json()
-                        # Vezmeme Top 10 manažerů z ligy
                         standings = league_data.get('standings', {}).get('results', [])[:10] 
                         
                         if standings:
@@ -569,7 +567,6 @@ with tab_league:
                             rival_picks = []
                             for manager in standings:
                                 m_id = manager['entry']
-                                # Přeskočíme tebe, pokud jsi v Top 10, abychom porovnávali jen s ostatními
                                 if str(m_id) == str(manager_id):
                                     continue
                                 m_team, _, _ = fetch_manager_team(m_id, gw, df)
@@ -577,7 +574,6 @@ with tab_league:
                                     rival_picks.extend(m_team)
                                     
                             if rival_picks:
-                                # Výpočet vlastnictví (Effective Ownership)
                                 ownership_counts = pd.Series(rival_picks).value_counts()
                                 num_rivals = len(standings) if str(manager_id) not in [str(m['entry']) for m in standings] else len(standings) - 1
                                 ownership_pct = (ownership_counts / num_rivals) * 100
@@ -825,7 +821,8 @@ with tab5:
                             
                             st.markdown(f"**Očekávané body týmu:** {sum([projections[w][i] for i in df['id'] if squad[i][w].varValue == 1]):.1f}")
                             
-                            if not t_in and not t_out:
+                            if not t_
+in and not t_out:
                                 st.info("🔄 Rolování přestupu (Žádná akce)")
                             else:
                                 for p in t_out: st.error(f"❌ OUT: {p}")
@@ -849,8 +846,7 @@ with tab6:
 
         team_df['Floor'] = 2.0 * team_df['health_multiplier']
         team_df.loc[team_df['position'].isin(['DEF', 'GK']), 'Floor'] += (team_df['CS_Prob'] / 100.0 * 4.0) * team_df['health_multiplier']
-        team_df.loc[team_df['position'] == 'MID', 'Floor
-'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
+        team_df.loc[team_df['position'] == 'MID', 'Floor'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
 
         team_df['Ceiling'] = team_df['projected_1gw_fdr'] + (team_df['Goal_Prob'] / 100.0 * 5.0) + (team_df['xA_90'] * 0.5) + 1.5
 
