@@ -4,11 +4,13 @@ import requests
 import pulp
 import json
 import concurrent.futures
+import numpy as np
 from scipy.stats import poisson
+import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0 - Deep Research Model)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0 - Hybridní Model)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -20,7 +22,6 @@ if 'nlp_modifiers' not in st.session_state:
 
 # --- 1. POKROČILÁ MATEMATIKA (DEEP RESEARCH) ---
 def calc_ema(series, alpha=0.25):
-    """Exponenciální klouzavý průměr (EMA) pro vyhlazení formy"""
     if not series: return 0.0
     ema = series[0]
     for val in series[1:]:
@@ -28,7 +29,6 @@ def calc_ema(series, alpha=0.25):
     return ema
 
 def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, cbit, cbirt):
-    """Výpočet xPts pomocí Poissonova rozdělení a SUROVÝCH DAT (CBIT/CBIRT)"""
     if mins == 0: return 0.0
     p90 = mins / 90.0
     
@@ -37,24 +37,18 @@ def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, cbit, cbirt):
     xgc_90 = float(xgc) / p90
     cs_90 = float(cs) / p90
     saves_90 = float(saves) / p90
-    
-    # Přepočet surových defenzivních akcí na 90 minut
     cbit_90 = float(cbit) / p90
     cbirt_90 = float(cbirt) / p90
 
     base_pts = 2.0 
     
-    # STOCHASTICKÉ MODELOVÁNÍ CBIT/CBIRT (Nová pravidla 25/26)
     if pos == 'DEF':
-        # Poisson: Pravděpodobnost, že obránce dosáhne 10 a více akcí (CBIT)
         p_cbit_bonus = poisson.sf(9, cbit_90) 
         def_bonus = p_cbit_bonus * 2.0
     else:
-        # Poisson: Pravděpodobnost, že záložník/útočník dosáhne 12 a více akcí (CBIRT)
         p_cbirt_bonus = poisson.sf(11, cbirt_90)
         def_bonus = p_cbirt_bonus * 2.0
 
-    # Finální výpočet podle pozice
     if pos == 'GK':
         return base_pts + (saves_90 * 0.33) + (cs_90 * 4.0) - (xgc_90 * 0.5)
     elif pos == 'DEF':
@@ -65,7 +59,7 @@ def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, cbit, cbirt):
         return base_pts + (xg_90 * 4.0) + (xa_90 * 3.0) + def_bonus
     return 0.0
 
-# --- 2. DATOVÁ ČÁST ---
+# --- 2. DATOVÁ ČÁST A TVORBA KURZŮ ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
@@ -98,7 +92,6 @@ def load_fpl_data():
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
     
-    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (EMA + Poisson + Surová data) ---
     active_players = df[df['minutes'] > 100]['id'].tolist()
     history_data = {}
     
@@ -120,15 +113,11 @@ def load_fpl_data():
         hist = history_data[pid]
         match_xpts = []
         
-        # Výpočet xPts pro každý odehraný zápas s využitím SUROVÝCH DAT
         for m in hist:
             if m['minutes'] > 0:
-                # Extrakce surových dat z FPL API
                 cbi = m.get('clearances_blocks_interceptions', 0)
                 tackles = m.get('tackles', 0)
                 recoveries = m.get('recoveries', 0)
-                
-                # Výpočet našich nových metrik
                 cbit = cbi + tackles
                 cbirt = cbit + recoveries
                 
@@ -138,10 +127,7 @@ def load_fpl_data():
                 )
                 match_xpts.append(pts)
         
-        # Aplikace Exponenciálního klouzavého průměru (EMA)
         ema_form = calc_ema(match_xpts, alpha=0.25) if match_xpts else 0.0
-        
-        # POA (Probability of Appearing)
         recent_5 = hist[-5:]
         starts = sum(1 for m in recent_5 if m['minutes'] > 45)
         poa = starts / 5.0 if len(recent_5) == 5 else (starts / len(recent_5) if len(recent_5) > 0 else 0)
@@ -151,7 +137,6 @@ def load_fpl_data():
 
     df['form'] = custom_forms
     
-    # --- AUTOMATICKÁ ZRANĚNÍ Z FPL API ---
     df['chance_of_playing_next_round'] = pd.to_numeric(df['chance_of_playing_next_round'], errors='coerce').fillna(100)
     df['health_multiplier'] = df['chance_of_playing_next_round'] / 100.0
     df['news'] = df['news'].fillna('')
@@ -197,8 +182,55 @@ def load_fpl_data():
     df['fdr_multiplier_5gw'] = df['team'].map(team_multiplier_5gw)
     df['fdr_multiplier_1gw'] = df['team'].map(team_multiplier_1gw)
     
+    # ZÁKLADNÍ MODEL (Čistě naše data)
+    df['model_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw'] * df['health_multiplier']
     df['projected_5gw_fdr'] = (df['form'] * 5) * df['fdr_multiplier_5gw'] * df['health_multiplier']
-    df['projected_1gw_fdr'] = (df['form'] * 1) * df['fdr_multiplier_1gw'] * df['health_multiplier']
+    
+    # --- NOVINKA: SIMULACE SÁZKOVÝCH KURZŮ (Odds Compiler) ---
+    # Vytvoříme realistické kurzy na základě síly týmu a formy hráče
+    cs_odds_map = {1: 1.80, 2: 2.20, 3: 3.50, 4: 5.50, 5: 8.00} # Kurz na čisté konto podle FDR
+    
+    odds_goal = []
+    odds_cs = []
+    odds_implied_pts = []
+    
+    for idx, row in df.iterrows():
+        fdr_next = team_fdr_1gw[row['team']] if team_fdr_1gw[row['team']] is not None else 3
+        
+        # 1. Kurz na čisté konto (CS)
+        cs_odd = cs_odds_map.get(fdr_next, 3.50)
+        cs_prob = 1.0 / cs_odd
+        odds_cs.append(cs_odd)
+        
+        # 2. Kurz na gól (Anytime Goalscorer)
+        # Závisí na pozici a formě. Útočník s formou 8.0 proti lehkému soupeři bude mít kurz třeba 1.80
+        base_goal_prob = (row['form'] / 15.0) * (1.0 + (3.0 - fdr_next) * 0.15)
+        
+        if row['position'] == 'FWD': goal_prob = min(0.65, max(0.05, base_goal_prob))
+        elif row['position'] == 'MID': goal_prob = min(0.45, max(0.02, base_goal_prob * 0.7))
+        elif row['position'] == 'DEF': goal_prob = min(0.15, max(0.01, base_goal_prob * 0.2))
+        else: goal_prob = 0.001
+        
+        goal_odd = round(1.0 / goal_prob, 2) if goal_prob > 0 else 99.0
+        odds_goal.append(goal_odd)
+        
+        # 3. Výpočet očekávaných bodů čistě ze sázkových kurzů!
+        pts_from_odds = 2.0 # Základ za start
+        if row['position'] in ['DEF', 'GK']: pts_from_odds += (cs_prob * 4.0)
+        elif row['position'] == 'MID': pts_from_odds += (cs_prob * 1.0)
+        
+        if row['position'] == 'FWD': pts_from_odds += (goal_prob * 4.0)
+        elif row['position'] == 'MID': pts_from_odds += (goal_prob * 5.0)
+        elif row['position'] == 'DEF': pts_from_odds += (goal_prob * 6.0)
+        
+        # Přidáme asistenci a bonusy jako odhad (kurzy na asistence se špatně simulují)
+        pts_from_odds += (row['form'] * 0.3) 
+        
+        odds_implied_pts.append(pts_from_odds * row['health_multiplier'])
+
+    df['odds_goal'] = odds_goal
+    df['odds_cs'] = odds_cs
+    df['odds_1gw_pts'] = odds_implied_pts
     
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
@@ -265,7 +297,8 @@ if st.session_state['nlp_modifiers']:
     for mod in st.session_state['nlp_modifiers']:
         idx = df['web_name'] == mod['web_name']
         df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
-        df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'model_1gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'odds_1gw_pts'] *= mod['xMins_multiplier']
 
 # --- 3. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
@@ -291,10 +324,19 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
-# --- NOVÉ TLAČÍTKO PRO VYNUCENÝ PŘEPOČET DAT ---
+# --- NOVINKA: HYBRIDNÍ MODEL (Váha kurzů) ---
+st.sidebar.header("🎲 Hybridní Model (Kurzy)")
+odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_value=0, max_value=100, value=50, step=10, help="0% = Pouze náš matematický model. 100% = Pouze sázkové kurzy. 50% = Ideální mix obojího.")
+odds_ratio = odds_weight / 100.0
+
+# Aplikace hybridního modelu do hlavní projekce
+df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * (1.0 - odds_ratio)) + (df['odds_1gw_pts'] * odds_ratio)
+
+st.sidebar.divider()
+
 st.sidebar.header("🔄 Správa dat")
 if st.sidebar.button("Vynutit přepočet surových dat (CBIT/CBIRT)"):
-    st.cache_data.clear() # Vymaže paměť a donutí aplikaci stáhnout vše znovu
+    st.cache_data.clear()
     st.rerun()
 
 st.sidebar.divider()
@@ -316,7 +358,7 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🧠 AI Analýza tiskovek"])
+tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Kurzy", "🧠 AI Analýza tiskovek"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -417,7 +459,7 @@ with tab1:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
 
 with tab2:
-    st.header("Kompletní databáze hráčů a Fixture Ticker")
+    st.header("Kompletní databáze hráčů a Sázkové kurzy")
     
     all_teams = sorted(df['team_name'].unique().tolist())
     selected_teams = st.multiselect("🔍 Filtrovat podle klubů:", all_teams, default=[], placeholder="Vyber jeden nebo více týmů...")
@@ -427,8 +469,10 @@ with tab2:
     else:
         filtered_df = df
     
-    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'form', 'chance_of_playing_next_round', 'news', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Forma (xPts)', 'Šance hrát (%)', 'Zprávy', 'Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
+    # Přidány sloupce pro kurzy a hybridní projekci
+    display_df = filtered_df[['unique_name', 'position', 'now_cost', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na G
+ól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
     diff_df.columns = ['Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
@@ -448,15 +492,16 @@ with tab2:
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
-        'Cena': "{:.1f}", 'Forma (xPts)': "{:.2f}", 'Šance hrát (%)': "{:.0f}", 'Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
+        'Cena': "{:.1f}", 'Kurz na Gól': "{:.2f}", 'Kurz na ČK': "{:.2f}", 'Hybridní Projekce (1 kolo)': "{:.1f}", 'Projekce (5 kol)': "{:.1f}"
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
-    st.header("🧠 AI Analýza tiskových konferencí (Demo)")
+    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
     st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
     
+    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
     news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
@@ -464,16 +509,33 @@ with tab3:
             st.warning("Nejprve vlož nějaký text.")
         else:
             with st.spinner("AI čte text a hledá zranění..."):
-                # DEMO REŽIM
-                demo_json = """
-                {
-                    "players": [
-                        {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
-                        {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
-                    ]
-                }
-                """
-                extracted_data = json.loads(demo_json)['players']
-                st.session_state['nlp_modifiers'] = extracted_data
-                st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
-                st.rerun()
+                try:
+                    if api_key == "":
+                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
+                        demo_json = """
+                        {
+                            "players": [
+                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
+                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
+                            ]
+                        }
+                        """
+                        extracted_data = json.loads(demo_json)['players']
+                    else:
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+                        prompt = """
+                        Jsi expert na Fantasy Premier League. Přečti si text.
+                        Vrať POUZE validní JSON ve formátu:
+                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
+                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
+                        """
+                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
+                        extracted_data = json.loads(response.text)['players']
+                    
+                    st.session_state['nlp_modifiers'] = extracted_data
+                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
