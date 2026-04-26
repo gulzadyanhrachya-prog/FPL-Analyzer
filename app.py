@@ -3,12 +3,12 @@ import pandas as pd
 import requests
 import pulp
 import json
-import google.generativeai as genai
 import concurrent.futures
+from scipy.stats import poisson
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0 - Deep Research Model)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -18,7 +18,54 @@ if 'bank' not in st.session_state:
 if 'nlp_modifiers' not in st.session_state:
     st.session_state['nlp_modifiers'] = []
 
-# --- 1. DATOVÁ ČÁST ---
+# --- 1. POKROČILÁ MATEMATIKA (DEEP RESEARCH) ---
+def calc_ema(series, alpha=0.25):
+    """Exponenciální klouzavý průměr (EMA) pro vyhlazení formy"""
+    if not series: return 0.0
+    ema = series[0]
+    for val in series[1:]:
+        ema = alpha * val + (1 - alpha) * ema
+    return ema
+
+def calculate_advanced_xpts(pos, mins, xg, xa, xgc, cs, saves, influence):
+    """Výpočet xPts pomocí Poissonova rozdělení pro nová pravidla 25/26"""
+    if mins == 0: return 0.0
+    p90 = mins / 90.0
+    
+    xg_90 = float(xg) / p90
+    xa_90 = float(xa) / p90
+    xgc_90 = float(xgc) / p90
+    cs_90 = float(cs) / p90
+    saves_90 = float(saves) / p90
+    influence_90 = float(influence) / p90
+
+    base_pts = 2.0 
+    
+    # STOCHASTICKÉ MODELOVÁNÍ CBIT/CBIRT (Nová pravidla)
+    # Používáme 'Influence' jako proxy pro defenzivní akce, protože FPL API nedává surové skluzy
+    if pos == 'DEF':
+        expected_cbit = influence_90 * 0.35  # Odhad průměrného počtu akcí
+        # Poisson: Pravděpodobnost, že hráč dosáhne 10 a více akcí (sf = survival function)
+        p_cbit_bonus = poisson.sf(9, expected_cbit) 
+        def_bonus = p_cbit_bonus * 2.0
+    else:
+        expected_cbirt = influence_90 * 0.40
+        # Poisson: Pravděpodobnost, že hráč dosáhne 12 a více akcí
+        p_cbirt_bonus = poisson.sf(11, expected_cbirt)
+        def_bonus = p_cbirt_bonus * 2.0
+
+    # Finální výpočet podle pozice
+    if pos == 'GK':
+        return base_pts + (saves_90 * 0.33) + (cs_90 * 4.0) - (xgc_90 * 0.5)
+    elif pos == 'DEF':
+        return base_pts + (xg_90 * 6.0) + (xa_90 * 3.0) + (cs_90 * 4.0) - (xgc_90 * 0.5) + def_bonus
+    elif pos == 'MID':
+        return base_pts + (xg_90 * 5.0) + (xa_90 * 3.0) + (cs_90 * 1.0) + def_bonus
+    elif pos == 'FWD':
+        return base_pts + (xg_90 * 4.0) + (xa_90 * 3.0) + def_bonus
+    return 0.0
+
+# --- 2. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
@@ -28,29 +75,6 @@ def get_current_gw():
     for event in res['events']:
         if event['is_previous']: return event['id']
     return 1
-
-def calc_position_index(pos, mins, xg, xa, xgc, cs, saves):
-    """Vypočítá očekávané body na 90 minut podle pozice a pokročilých statistik"""
-    if mins == 0: return 0.0
-    p90 = mins / 90.0
-    
-    xg_90 = float(xg) / p90
-    xa_90 = float(xa) / p90
-    xgc_90 = float(xgc) / p90
-    cs_90 = float(cs) / p90
-    saves_90 = float(saves) / p90
-
-    base_pts = 2.0 
-    
-    if pos == 'GK':
-        return base_pts + (saves_90 * 0.33) + (cs_90 * 4.0) - (xgc_90 * 0.5)
-    elif pos == 'DEF':
-        return base_pts + (xg_90 * 6.0) + (xa_90 * 3.0) + (cs_90 * 4.0) - (xgc_90 * 0.5)
-    elif pos == 'MID':
-        return base_pts + (xg_90 * 5.0) + (xa_90 * 3.0) + (cs_90 * 1.0)
-    elif pos == 'FWD':
-        return base_pts + (xg_90 * 4.0) + (xa_90 * 3.0)
-    return 0.0
 
 def fetch_player_history(player_id):
     url = f'https://fantasy.premierleague.com/api/element-summary/{player_id}/'
@@ -74,7 +98,7 @@ def load_fpl_data():
     position_map = {1: 'GK', 2: 'DEF', 3: 'MID', 4: 'FWD'}
     df['position'] = df['element_type'].map(position_map)
     
-    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (Season + Last 5) ---
+    # --- VÝPOČET NOVÉ VLASTNÍ FORMY (EMA + Poisson) ---
     active_players = df[df['minutes'] > 100]['id'].tolist()
     history_data = {}
     
@@ -94,32 +118,26 @@ def load_fpl_data():
             continue
             
         hist = history_data[pid]
+        match_xpts = []
         
-        season_idx = calc_position_index(
-            pos, row['minutes'], row['expected_goals'], row['expected_assists'], 
-            row['expected_goals_conceded'], row['clean_sheets'], row['saves']
-        )
+        # Výpočet xPts pro každý odehraný zápas v historii hráče
+        for m in hist:
+            if m['minutes'] > 0:
+                pts = calculate_advanced_xpts(
+                    pos, m['minutes'], m['expected_goals'], m['expected_assists'], 
+                    m['expected_goals_conceded'], m['clean_sheets'], m['saves'], m['influence']
+                )
+                match_xpts.append(pts)
         
-        played_matches = [m for m in hist if m['minutes'] > 0]
-        last_5 = played_matches[-5:]
+        # Aplikace Exponenciálního klouzavého průměru (EMA)
+        ema_form = calc_ema(match_xpts, alpha=0.25) if match_xpts else 0.0
         
-        if len(last_5) > 0:
-            l5_mins = sum(m['minutes'] for m in last_5)
-            l5_xg = sum(float(m['expected_goals']) for m in last_5)
-            l5_xa = sum(float(m['expected_assists']) for m in last_5)
-            l5_xgc = sum(float(m['expected_goals_conceded']) for m in last_5)
-            l5_cs = sum(m['clean_sheets'] for m in last_5)
-            l5_saves = sum(m['saves'] for m in last_5)
-            l5_idx = calc_position_index(pos, l5_mins, l5_xg, l5_xa, l5_xgc, l5_cs, l5_saves)
-        else:
-            l5_idx = season_idx
-            
-        recent_5_all = hist[-5:]
-        avg_mins_recent = sum(m['minutes'] for m in recent_5_all) / 5.0 if len(recent_5_all) > 0 else 0
+        # POA (Probability of Appearing) - Šance, že nastoupí do základu
+        recent_5 = hist[-5:]
+        starts = sum(1 for m in recent_5 if m['minutes'] > 45)
+        poa = starts / 5.0 if len(recent_5) == 5 else (starts / len(recent_5) if len(recent_5) > 0 else 0)
         
-        blended_idx = (season_idx * 0.3) + (l5_idx * 0.7)
-        final_form = blended_idx * (avg_mins_recent / 90.0)
-        
+        final_form = ema_form * poa
         custom_forms.append(max(0.0, final_form))
 
     df['form'] = custom_forms
@@ -134,7 +152,6 @@ def load_fpl_data():
     
     team_fdr_5gw = {team_id: [] for team_id in teams_df['id']}
     team_fdr_1gw = {team_id: None for team_id in teams_df['id']}
-    
     team_fixtures_str = {team_id: [] for team_id in teams_df['id']}
     team_fixtures_diff = {team_id: [] for team_id in teams_df['id']}
     
@@ -231,7 +248,7 @@ def get_best_xi(squad_df):
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
 # Načtení dat
-with st.spinner("Stahuji data a počítám pokročilou formu hráčů (xPts)..."):
+with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
     df = load_fpl_data()
 
 # --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
@@ -241,7 +258,7 @@ if st.session_state['nlp_modifiers']:
         df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
         df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
 
-# --- 2. BOČNÍ PANEL ---
+# --- 3. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
 manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
 
@@ -281,7 +298,7 @@ if st.session_state['nlp_modifiers']:
         if mod['xMins_multiplier'] < 1.0:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
-# --- 3. HLAVNÍ OBSAH ---
+# --- 4. HLAVNÍ OBSAH ---
 tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🧠 AI Analýza tiskovek"])
 
 with tab1:
@@ -366,7 +383,6 @@ with tab1:
                         with col:
                             health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
                             st.markdown(f"""
-
                             <div style="text-align: center; padding: 8px; background-color: rgba(255, 99, 71, 0.1); border-radius: 10px; border: 1px dashed rgba(255, 99, 71, 0.3);">
                                 <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}</div>
                                 <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
@@ -421,10 +437,9 @@ with tab2:
     st.dataframe(styled_df, use_container_width=True, height=600)
 
 with tab3:
-    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
+    st.header("🧠 AI Analýza tiskových konferencí (Demo)")
     st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
     
-    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
     news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
     
     if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
@@ -432,33 +447,16 @@ with tab3:
             st.warning("Nejprve vlož nějaký text.")
         else:
             with st.spinner("AI čte text a hledá zranění..."):
-                try:
-                    if api_key == "":
-                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
-                        demo_json = """
-                        {
-                            "players": [
-                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
-                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
-                            ]
-                        }
-                        """
-                        extracted_data = json.loads(demo_json)['players']
-                    else:
-                        genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
-                        prompt = """
-                        Jsi expert na Fantasy Premier League. Přečti si text.
-                        Vrať POUZE validní JSON ve formátu:
-                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
-                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
-                        """
-                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
-                        extracted_data = json.loads(response.text)['players']
-                    
-                    st.session_state['nlp_modifiers'] = extracted_data
-                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
+                # DEMO REŽIM
+                demo_json = """
+                {
+                    "players": [
+                        {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
+                        {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
+                    ]
+                }
+                """
+                extracted_data = json.loads(demo_json)['players']
+                st.session_state['nlp_modifiers'] = extracted_data
+                st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                st.rerun()
