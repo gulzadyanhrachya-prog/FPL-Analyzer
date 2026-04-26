@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 5.0 - Captaincy Planner)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 6.0 - Všechny Žolíky)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -329,7 +329,8 @@ manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
 
 if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
     if manager_id.isdigit():
-        with st.spinner("Stahuji data z FPL..."):
+        with st.spinner("Stahuji data z FPL
+..."):
             gw = get_current_gw()
             fetched_team, fetched_bank, real_gw = fetch_manager_team(manager_id, gw, df)
             
@@ -347,8 +348,17 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
+# --- NOVINKA: VŠECHNY ŽOLÍKY (CHIPS) ---
 st.sidebar.header("🃏 Strategie žolíků")
-simulate_wildcard = st.sidebar.toggle("Aktivovat Wildcard", value=False, help="Zruší limit přestupů a poskládá zcela nový tým z tvého rozpočtu.")
+active_chip = st.sidebar.radio(
+    "Aktivovat čip pro příští kolo:", 
+    ["Žádný", "🃏 Wildcard", "🆓 Free Hit", "🚀 Bench Boost"],
+    help="Wildcard a Free Hit zruší limit přestupů. Free Hit optimalizuje jen na 1 kolo. Bench Boost započítá lavičku."
+)
+
+simulate_wildcard = (active_chip == "🃏 Wildcard")
+simulate_freehit = (active_chip == "🆓 Free Hit")
+simulate_bb = (active_chip == "🚀 Bench Boost")
 
 st.sidebar.divider()
 
@@ -370,7 +380,7 @@ st.sidebar.divider()
 
 st.sidebar.header("⚙️ Tvoje nastavení")
 bank = st.sidebar.number_input("Peníze v bance (miliony):", min_value=0.0, max_value=100.0, value=float(st.session_state['bank']), step=0.1)
-free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1, disabled=simulate_wildcard)
+free_transfers = st.sidebar.slider("Počet volných přestupů:", 1, 5, 1, disabled=(simulate_wildcard or simulate_freehit))
 
 st.sidebar.subheader("Tvůj aktuální tým")
 all_player_names = sorted(df['unique_name'].tolist())
@@ -385,7 +395,6 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-# PŘIDÁNA NOVÁ ZÁLOŽKA PRO KAPITÁNA (TAB 6)
 tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 with tab1:
@@ -403,7 +412,14 @@ with tab1:
                 prob = pulp.LpProblem("FPL_Transfer_Optimizer", pulp.LpMaximize)
                 player_vars = pulp.LpVariable.dicts("player", df['id'], cat='Binary')
                 
-                projections = dict(zip(df['id'], df['projected_5gw_fdr']))
+                # --- NOVINKA: LOGIKA FREE HITU ---
+                if simulate_freehit:
+                    # Free Hit optimalizuje POUZE na 1 kolo dopředu
+                    projections = dict(zip(df['id'], df['projected_1gw_fdr']))
+                else:
+                    # Vše ostatní (včetně Bench Boostu) optimalizuje na 5 kol
+                    projections = dict(zip(df['id'], df['projected_5gw_fdr']))
+                    
                 costs = dict(zip(df['id'], df['now_cost']))
                 
                 prob += pulp.lpSum([projections[i] * player_vars[i] for i in df['id']])
@@ -417,7 +433,8 @@ with tab1:
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
 
-                if not simulate_wildcard:
+                # Omezovač přestupů se vypne, pokud je aktivní Wildcard nebo Free Hit
+                if not (simulate_wildcard or simulate_freehit):
                     prob += pulp.lpSum([player_vars[i] for i in current_squad_ids]) >= (15 - free_transfers)
 
                 prob.solve()
@@ -432,8 +449,13 @@ with tab1:
                     players_out = current_squad_df[~current_squad_df['id'].isin(selected_ids)]
                     players_in = new_squad_df[~new_squad_df['id'].isin(current_squad_ids)]
                     
+                    # --- NOVINKA: VIZUÁLNÍ ZPĚTNÁ VAZBA PRO ČIPY ---
                     if simulate_wildcard:
-                        st.success("🃏 WILDCARD AKTIVOVÁN: Tým byl kompletně přestavěn!")
+                        st.success("🃏 WILDCARD AKTIVOVÁN: Tým byl kompletně přestavěn s výhledem na 5 kol!")
+                    elif simulate_freehit:
+                        st.success("🆓 FREE HIT AKTIVOVÁN: Tým byl optimalizován POUZE pro příští kolo!")
+                    elif simulate_bb:
+                        st.success("🚀 BENCH BOOST AKTIVOVÁN: Lavička se počítá do celkového skóre!")
                     
                     st.subheader("🔄 Doporučené přestupy:")
                     col1, col2 = st.columns(2)
@@ -473,17 +495,32 @@ with tab1:
                     for col, (_, row) in zip(bench_cols, new_bench.iterrows()):
                         with col:
                             health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                            
+                            # Pokud je aktivní Bench Boost, lavička svítí zeleně!
+                            bg_color = "rgba(44, 186, 0, 0.15)" if simulate_bb else "rgba(255, 99, 71, 0.1)"
+                            border_color = "rgba(44, 186, 0, 0.5)" if simulate_bb else "rgba(255, 99, 71, 0.3)"
+                            
                             st.markdown(f"""
-                            <div style="text-align: center; padding: 8px; background-color: rgba(255, 99, 71, 0.1); border-radius: 10px; border: 1px dashed rgba(255, 99, 71, 0.3);">
+                            <div style="text-align: center; padding: 8px; background-color: {bg_color}; border-radius: 10px; border: 1px dashed {border_color};">
                                 <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}</div>
                                 <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
                             </div>
                             """, unsafe_allow_html=True)
                     
                     st.divider()
+                    
+                    # --- NOVINKA: VÝPOČET BODŮ PRO BENCH BOOST ---
+                    if simulate_bb:
+                        captain_bonus = new_start.loc[new_start['id'] == cap_id, 'projected_1gw_fdr'].values[0]
+                        expected_pts_display = new_squad_df['projected_1gw_fdr'].sum() + captain_bonus
+                        pts_label = "Očekávané body (Všech 15 hráčů!)"
+                    else:
+                        expected_pts_display = new_xi_1gw_proj
+                        pts_label = "Očekávané body sestavy (Příští kolo)"
+                        
                     col_met1, col_met2, col_met3 = st.columns(3)
                     col_met1.metric("Zisk z přestupu (Celý tým na 5 kol)", f"+{new_squad_5gw_proj - current_squad_5gw_proj:.1f} bodů")
-                    col_met2.metric("Očekávané body sestavy (Příští kolo)", f"{new_xi_1gw_proj:.1f} bodů")
+                    col_met2.metric(pts_label, f"{expected_pts_display:.1f} bodů")
                     col_met3.metric("Zůstatek v bance", f"{total_budget - new_squad_df['now_cost'].sum():.1f} m")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
@@ -582,7 +619,6 @@ with tab5:
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
-# --- NOVINKA: POKROČILÝ PLÁNOVAČ KAPITÁNŮ ---
 with tab6:
     st.header("©️ Pokročilý Plánovač Kapitánů")
     st.write("Rozhodování o kapitánovi vyhrává mini-ligy. Tento model analyzuje tvůj aktuální tým a rozkládá projekci na **Floor** (jistota bodů) a **Ceiling** (maximální potenciál).")
@@ -590,15 +626,12 @@ with tab6:
     if len(my_team) > 0:
         team_df = df[df['unique_name'].isin(my_team)].copy()
 
-        # Výpočet Floor (Základní body za start + případné čisté konto)
         team_df['Floor'] = 2.0 * team_df['health_multiplier']
         team_df.loc[team_df['position'].isin(['DEF', 'GK']), 'Floor'] += (team_df['CS_Prob'] / 100.0 * 4.0) * team_df['health_multiplier']
         team_df.loc[team_df['position'] == 'MID', 'Floor'] += (team_df['CS_Prob'] / 100.0 * 1.0) * team_df['health_multiplier']
 
-        # Výpočet Ceiling (Projekce + extra šance na gól/asistenci a bonusy)
         team_df['Ceiling'] = team_df['projected_1gw_fdr'] + (team_df['Goal_Prob'] / 100.0 * 5.0) + (team_df['xA_90'] * 0.5) + 1.5
 
-        # Vybereme top 5 kandidátů podle celkové projekce
         top_caps = team_df.sort_values(by='projected_1gw_fdr', ascending=False).head(5)
 
         if len(top_caps) >= 3:
@@ -625,7 +658,6 @@ with tab6:
         st.divider()
         st.subheader("📊 Analýza rizika (Floor vs. Ceiling)")
 
-        # Vykreslení skládaného grafu
         fig_cap = go.Figure()
         fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
         fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
@@ -747,6 +779,7 @@ with tab4:
             with st.spinner("AI čte text a hledá zranění..."):
                 try:
                     genai.configure(api_key=api_key)
+
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     prompt = f"""
@@ -760,8 +793,7 @@ with tab4:
                     }}
                     
                     Pravidla pro xMins_multiplier:
-                    - 0.0 = H
-ráč je zraněný nebo suspendovaný a určitě nehraje.
+                    - 0.0 = Hráč je zraněný nebo suspendovaný a určitě nehraje.
                     - 0.5 = Hráč je nejistý (doubtful), má drobný šrám, nebo pravděpodobně začne na lavičce.
                     - 1.0 = Hráč je plně fit a připraven hrát.
                     
