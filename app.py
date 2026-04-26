@@ -413,7 +413,8 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab_home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs([
+tab_
+home, tab_live, tab_league, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs([
     "🏠 Hlavní Dashboard", "🔴 Live Gameweek", "⚔️ Mini-Ligy", "🔄 Rychlý Optimalizátor", 
     "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", 
     "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"
@@ -530,21 +531,21 @@ with tab_live:
                             "Živé body": live_pts
                         })
 
-                        st.subheader(f"🏆 Aktuální skóre pro GW {gw}: {total_live_pts} bodů")
-                        if real_active_chip and real_active_chip != 'Žádný':
-                            st.info(f"Aktivní čip v tomto kole: {real_active_chip.upper()}")
+                    st.subheader(f"🏆 Aktuální skóre pro GW {gw}: {total_live_pts} bodů")
+                    if real_active_chip and real_active_chip != 'Žádný':
+                        st.info(f"Aktivní čip v tomto kole: {real_active_chip.upper()}")
 
-                        live_df = pd.DataFrame(live_rows)
-                        
-                        def style_live_rows(row):
-                            if row['Základ/Lavička'] == 'Lavička':
-                                return ['color: gray; font-style: italic;'] * len(row)
-                            elif '👑 (C)' in row['Hráč']:
-                                return ['background-color: rgba(255, 215, 0, 0.1); font-weight: bold;'] * len(row)
-                            return [''] * len(row)
+                    live_df = pd.DataFrame(live_rows)
+                    
+                    def style_live_rows(row):
+                        if row['Základ/Lavička'] == 'Lavička':
+                            return ['color: gray; font-style: italic;'] * len(row)
+                        elif '👑 (C)' in row['Hráč']:
+                            return ['background-color: rgba(255, 215, 0, 0.1); font-weight: bold;'] * len(row)
+                        return [''] * len(row)
 
-                        styled_live_df = live_df.style.apply(style_live_rows, axis=1)
-                        st.dataframe(styled_live_df, use_container_width=True, hide_index=True)
+                    styled_live_df = live_df.style.apply(style_live_rows, axis=1)
+                    st.dataframe(styled_live_df, use_container_width=True, hide_index=True)
                 else:
                     st.error("Nepodařilo se načíst živá data. Možná probíhá aktualizace FPL serverů nebo ještě nezačalo kolo.")
     else:
@@ -648,8 +649,6 @@ with tab_league:
                                 
                             eo_df = pd.DataFrame(eo_data).sort_values(by="Skutečné EO (%)", ascending=False)
                             
-                            # Oprava chyby: Odstraněno formátování přes .style.format a .background_gradient
-                            # Místo toho používáme st.column_config pro bezpečné a hezké zobrazení
                             st.dataframe(
                                 eo_df,
                                 use_container_width=True, 
@@ -790,8 +789,8 @@ with tab1:
                     col_met3.metric("Zůstatek v bance", f"{total_budget - new_squad_df['now_cost'].sum():.1f} m")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
-        else:
-            st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
+    else:
+        st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
 
 with tab5:
     st.header("🚀 Vícekolový plánovač přestupů (Multi-Period)")
@@ -847,11 +846,10 @@ with tab5:
                     for i in df['id']:
                         prob += squad[i][w] == squad[i][w-1] + transfer_in[i][w] - transfer_out[i][w]
                         
-                    prob += transfers_count[w] == pulp.lpSum
-([transfer_in[i][w] for i in df['id']])
+                    prob += transfers_count[w] == pulp.lpSum([transfer_in[i][w] for i in df['id']])
                     
-                    if w == 1:  
-                    prob += hits[w] >= transfers_count[w] - free_transfers
+                    if w == 1:
+                        prob += hits[w] >= transfers_count[w] - free_transfers
                     else:
                         prob += hits[w] >= transfers_count[w] - 1
                         
@@ -883,8 +881,8 @@ with tab5:
                                     st.caption("Zdarma (v rámci FT)")
                 else:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
-        else:
-            st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
+    else:
+        st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
 with tab6:
     st.header("©️ Pokročilý Plánovač Kapitánů")
@@ -923,7 +921,8 @@ with tab6:
                 st.progress(min(diff['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {diff['Goal_Prob']:.1f}%")
 
         st.divider()
-        st.subheader("📊 Analýza rizika (Floor vs. Ceiling)")
+        st.subheader("📊 Anal
+ýza rizika (Floor vs. Ceiling)")
 
         fig_cap = go.Figure()
         fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
