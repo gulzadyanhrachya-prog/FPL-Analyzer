@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 2.0 - Hybridní Model)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 3.0 - Multi-Period)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -68,6 +68,7 @@ def get_current_gw():
         if event['is_current']: return event['id']
     for event in res['events']:
         if event['is_previous']: return event['id']
+
     return 1
 
 def fetch_player_history(player_id):
@@ -249,9 +250,14 @@ def load_fpl_data():
     df['Goal_pct'] = df['Goal_Prob'].rank(pct=True) * 100
     df['CS_pct'] = df['CS_Prob'].rank(pct=True) * 100
     
+    # --- NOVINKA: ROZPAD PROJEKCÍ NA JEDNOTLIVÁ KOLA ---
     for i in range(5):
         df[f'Zápas {i+1}'] = df['team'].apply(lambda x: team_fixtures_str[x][i] if len(team_fixtures_str[x]) > i else "-")
         df[f'Diff {i+1}'] = df['team'].apply(lambda x: team_fixtures_diff[x][i] if len(team_fixtures_diff[x]) > i else 3)
+        
+        # Výpočet projekce pro konkrétní kolo (w)
+        fdr_mult = 1.0 + (3.0 - df[f'Diff {i+1}']) * 0.2
+        df[f'proj_gw{i+1}'] = df['form'] * fdr_mult * df['health_multiplier']
     
     return df
 
@@ -316,6 +322,8 @@ if st.session_state['nlp_modifiers']:
         df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
         df.loc[idx, 'model_1gw_fdr'] *= mod['xMins_multiplier']
         df.loc[idx, 'odds_1gw_pts'] *= mod['xMins_multiplier']
+        for i in range(1, 6):
+            df.loc[idx, f'proj_gw{i}'] *= mod['xMins_multiplier']
 
 # --- 3. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
@@ -341,7 +349,6 @@ if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
 
 st.sidebar.divider()
 
-# --- NOVINKA: SIMULACE WILDCARDU ---
 st.sidebar.header("🃏 Strategie žolíků")
 simulate_wildcard = st.sidebar.toggle("Aktivovat Wildcard", value=False, help="Zruší limit přestupů a poskládá zcela nový tým z tvého rozpočtu.")
 
@@ -352,6 +359,8 @@ odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_valu
 odds_ratio = odds_weight / 100.0
 
 df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * (1.0 - odds_ratio)) + (df['odds_1gw_pts'] * odds_ratio)
+# Propojíme hybridní model s prvním kolem vícekolového plánovače!
+df['proj_gw1'] = df['projected_1gw_fdr']
 
 st.sidebar.divider()
 
@@ -379,10 +388,11 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-tab1, tab2, tab3, tab4 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
+# PŘIDÁNA NOVÁ ZÁLOŽKA (TAB 5)
+tab1, tab5, tab2, tab3, tab4 = st.tabs(["🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
 with tab1:
-    st.header("Matematický návrh přestupů")
+    st.header("Matematický návrh přestupů (Jednorázový)")
     
     if len(my_team) == 15:
         if st.button("🚀 Spustit AI Optimalizaci", type="primary"):
@@ -410,7 +420,6 @@ with tab1:
                 for team in df['team_name'].unique():
                     prob += pulp.lpSum([player_vars[i] for i in df[df['team_name'] == team]['id']]) <= 3
 
-                # --- NOVINKA: LOGIKA WILDCARDU ---
                 if not simulate_wildcard:
                     prob += pulp.lpSum([player_vars[i] for i in current_squad_ids]) >= (15 - free_transfers)
 
@@ -440,9 +449,7 @@ with tab1:
                             
                     st.divider()
                     
-                    # OPRAVENÝ ŘÁDEK: Odstraněno zalomení řádku v řetězci
                     st.subheader("🏟️ Vizuální hřiště (Příští kolo)")
-                    
                     for pos in ['GK', 'DEF', 'MID', 'FWD']:
                         players_in_pos = new_start[new_start['position'] == pos]
                         if not players_in_pos.empty:
@@ -485,6 +492,116 @@ with tab1:
                     st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů. Zatím jich máš {len(my_team)}.")
+
+# --- NOVINKA: VÍCEKOLOVÝ PLÁNOVAČ ---
+with tab5:
+    st.header("🚀 Vícekolový plánovač přestupů (Multi-Period)")
+    st.write("Tento model chápe čas. Plánuje sekvenci přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
+    
+    horizon = st.slider("Plánovací horizont (počet kol dopředu):", min_value=2, max_value=5, value=3)
+    
+    if len(my_team) == 15:
+        if st.button("🔮 Spustit Vícekolovou Optimalizaci", type="primary"):
+            with st.spinner(f'AI simuluje všechny časové osy a cesty pro dalších {horizon} kol...'):
+                current_squad_ids = df[df['unique_name'].isin(my_team)]['id'].tolist()
+                total_budget = df[df['id'].isin(current_squad_ids)]['now_cost'].sum() + bank
+                
+                prob = pulp.LpProblem("MultiPeriod_FPL", pulp.LpMaximize)
+                gw_range = range(1, horizon + 1)
+                
+                # 1. Definice 2D proměnných (Hráč + Čas)
+                squad = pulp.LpVariable.dicts("squad", (df['id'], range(horizon + 1)), cat='Binary')
+                transfer_in = pulp.LpVariable.dicts("transfer_in", (df['id'], gw_range), cat='Binary')
+                transfer_out = pulp.LpVariable.dicts("transfer_out", (df['id'], gw_range), cat='Binary')
+                
+                # Pomocné proměnné pro počítání hitů
+                transfers_count = pulp.LpVariable.dicts("transfers_count", gw_range, lowBound=0, cat='Integer')
+                hits = pulp.LpVariable.dicts("hits", gw_range, lowBound=0, cat='Integer')
+                
+                # Rychlá extrakce dat do slovníků (aby byl PuLP bleskově rychlý)
+                costs = dict(zip(df['id'], df['now_cost']))
+                names = dict(zip(df['id'], df['unique_name']))
+                projections = {w: dict(zip(df['id'], df[f'proj_gw{w}'])) for w in gw_range}
+                
+                # 2. Cílová funkce (Maximalizovat body ve všech kolech MINUS hity)
+                objective = []
+                for w in gw_range:
+                    for i in df['id']:
+                        objective.append(squad[i][w] * projections[w][i])
+                    objective.append(-4.0 * hits[w]) # Penalizace -4 body za každý hit
+                prob += pulp.lpSum(objective)
+                
+                # 3. Počáteční stav (Kolo 0 = Tvůj aktuální tým)
+                for i in df['id']:
+                    if i in current_squad_ids:
+                        prob += squad[i][0] == 1
+                    else:
+                        prob += squad[i][0] == 0
+                        
+                # 4. Omezení pro každé budoucí kolo
+                for w in gw_range:
+                    # Tým musí mít přesně 15 hráčů
+                    prob += pulp.lpSum([squad[i][w] for i in df['id']]) == 15
+                    
+                    # Rozpočet nesmí být překročen
+                    prob += pulp.lpSum([squad[i][w] * costs[i] for i in df['id']]) <= total_budget
+                    
+                    # Pozice
+                    prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'GK']['id']]) == 2
+                    prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'DEF']['id']]) == 5
+                    prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'MID']['id']]) == 5
+                    prob += pulp.lpSum([squad[i][w] for i in df[df['position'] == 'FWD']['id']]) == 3
+
+                    
+                    # Max 3 hráči z jednoho klubu
+                    for team in df['team_name'].unique():
+                        prob += pulp.lpSum([squad[i][w] for i in df[df['team_name'] == team]['id']]) <= 3
+                        
+                    # Rovnice kontinuity (Tým v kole W = Tým v kole W-1 + Nákupy - Prodeje)
+                    for i in df['id']:
+                        prob += squad[i][w] == squad[i][w-1] + transfer_in[i][w] - transfer_out[i][w]
+                        
+                    # Spočítání celkového počtu přestupů v daném kole
+                    prob += transfers_count[w] == pulp.lpSum([transfer_in[i][w] for i in df['id']])
+                    
+                    # Logika volných přestupů a hitů
+                    if w == 1:
+                        # Pro první kolo použijeme počet FT z bočního panelu
+                        prob += hits[w] >= transfers_count[w] - free_transfers
+                    else:
+                        # Pro další kola předpokládáme zisk 1 nového FT
+                        prob += hits[w] >= transfers_count[w] - 1
+                        
+                prob.solve()
+                
+                if pulp.LpStatus[prob.status] == 'Optimal':
+                    st.success(f"✅ Vícekolový plán na {horizon} kol úspěšně nalezen!")
+                    
+                    cols = st.columns(horizon)
+                    for w, col in zip(gw_range, cols):
+                        with col:
+                            st.subheader(f"📅 GW +{w}")
+                            
+                            t_in = [names[i] for i in df['id'] if transfer_in[i][w].varValue == 1]
+                            t_out = [names[i] for i in df['id'] if transfer_out[i][w].varValue == 1]
+                            hit_cost = hits[w].varValue * 4
+                            
+                            st.markdown(f"**Očekávané body týmu:** {sum([projections[w][i] for i in df['id'] if squad[i][w].varValue == 1]):.1f}")
+                            
+                            if not t_in and not t_out:
+                                st.info("🔄 Rolování přestupu (Žádná akce)")
+                            else:
+                                for p in t_out: st.error(f"❌ OUT: {p}")
+                                for p in t_in: st.success(f"✅ IN: {p}")
+                                
+                                if hit_cost > 0:
+                                    st.warning(f"⚠️ Hit: -{int(hit_cost)} bodů")
+                                else:
+                                    st.caption("Zdarma (v rámci FT)")
+                else:
+                    st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
+    else:
+        st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
 with tab2:
     st.header("Kompletní databáze hráčů a Sázkové kurzy")
@@ -596,3 +713,5 @@ with tab4:
                 st.session_state['nlp_modifiers'] = extracted_data
                 st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                 st.rerun()
+
+Tohle je obrovský skok kupředu. Dej mi vědět, jak to šlape!
