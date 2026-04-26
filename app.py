@@ -391,7 +391,8 @@ st.sidebar.divider()
 
 st.sidebar.header("🔄 Správa dat")
 if st.sidebar.button("Vynutit přepočet surových dat (CBIT/CBIRT)"):
-    st.cache_data.clear()
+    st
+.cache_data.clear()
     st.rerun()
 
 st.sidebar.divider()
@@ -469,8 +470,7 @@ with tab_home:
         for col, (_, row) in zip(cols, top_form.iterrows()):
             with col:
                 st.markdown(f"**{row['web_name']}**")
-                st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.
-                                                                            1f} (Lepší než {int(row['Form_pct'])}% ligy)")
+                st.progress(min(row['Form_pct']/100.0, 1.0), text=f"Forma: {row['form']:.1f} (Lepší než {int(row['Form_pct'])}% ligy)")
                 
     else:
         st.info("👋 Vítej v Ultimátním FPL AI Managerovi!")
@@ -907,6 +907,7 @@ with tab6:
 
             with c1:
                 st.success(f"👑 KAPITÁN (C): {cap['web_name']}")
+
                 st.markdown(f"**Zápas:** {cap['Zápas 1']} | **Projekce:** {cap['projected_1gw_fdr']:.1f} b.")
                 st.progress(min(cap['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {cap['Goal_Prob']:.1f}%")
 
@@ -962,8 +963,7 @@ with tab2:
                 elif val == 4: bg, text = '#ff4e11', 'white'
                 elif val == 5: bg, text = '#8B0000', 'white'
                 else: bg, text = '', ''
-                styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold
-;'
+                styles.loc[idx, col] = f'background-color: {bg}; color: {text}; text-align: center; font-weight: bold;'
         return styles
 
     styled_df = display_df.style.apply(style_fixtures, diffs=diff_df, axis=None).format({
