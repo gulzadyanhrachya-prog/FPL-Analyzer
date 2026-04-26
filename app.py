@@ -338,8 +338,7 @@ if st.session_state['nlp_modifiers']:
             df.loc[idx, f'proj_gw{i}'] *= mod['xMins_multiplier']
 
 # --- 3. BOČNÍ PANEL ---
-st.sidebar
-.header("📥 Import týmu")
+st.sidebar.header("📥 Import týmu")
 manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
 
 if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
