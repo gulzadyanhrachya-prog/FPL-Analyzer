@@ -471,7 +471,7 @@ with tab2:
     
     # Přidány sloupce pro kurzy a hybridní projekci
     display_df = filtered_df[['unique_name', 'position', 'now_cost', 'odds_goal', 'odds_cs', 'projected_1gw_fdr', 'projected_5gw_fdr', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']].copy()
-    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na G
+    display_df.columns = ['Hráč (Tým)', 'Pozice', 'Cena', 'Kurz na G]
 ól', 'Kurz na ČK', 'Hybridní Projekce (1 kolo)', 'Projekce (5 kol)', 'Zápas 1', 'Zápas 2', 'Zápas 3', 'Zápas 4', 'Zápas 5']
     
     diff_df = filtered_df[['Diff 1', 'Diff 2', 'Diff 3', 'Diff 4', 'Diff 5']].copy()
