@@ -394,10 +394,9 @@ if st.session_state['nlp_modifiers']:
             st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
 
 # --- 4. HLAVNÍ OBSAH ---
-# PŘIDÁNA NOVÁ ZÁLOŽKA PRO HLAVNÍ DASHBOARD (TAB HOME)
 tab_home, tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["🏠 Hlavní Dashboard", "🔄 Rychlý Optimalizátor", "🚀 Vícekolový plánovač", "©️ Plánovač Kapitánů", "📅 Databáze & Kurzy", "🕸️ Porovnávač hráčů", "🧠 AI Analýza tiskovek"])
 
-# --- NOVINKA: HLAVNÍ DASHBOARD ---
+# --- HLAVNÍ DASHBOARD ---
 with tab_home:
     st.header("🏠 Hlavní Dashboard manažera")
     
@@ -410,7 +409,8 @@ with tab_home:
         team_value = current_squad_df['now_cost'].sum() + bank
         
         st.subheader("📊 Rychlý přehled")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4 = st
+.columns(4)
         col1.metric("Hodnota týmu", f"{team_value:.1f} m")
         col2.metric("V bance", f"{bank:.1f} m")
         col3.metric("Očekávané body (Příští kolo)", f"{c_xi_pts:.1f} b.")
@@ -822,9 +822,9 @@ with tab4:
     
     news_text = st.text_area("Text z tiskovky (např. přepis slov Pepa Guardioly):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený, možná začne na lavičce...")
     
-    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):        
-if not api_key:
-st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
+    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
+        if not api_key:
+            st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistudio.google.com/")
         elif not news_text:
             st.warning("⚠️ Nejprve vlož nějaký text k analýze.")
         else:
@@ -857,7 +857,8 @@ st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistud
                     cleaned_response = response.text.replace('```json', '').replace('```', '').strip()
                     extracted_data = json.loads(cleaned_response)['players']
                     
-                    if extracted_data:
+                    if extracted
+_data:
                         st.session_state['nlp_modifiers'] = extracted_data
                         st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
                         st.rerun()
