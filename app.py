@@ -850,8 +850,8 @@ with tab5:
                     prob += transfers_count[w] == pulp.lpSum
 ([transfer_in[i][w] for i in df['id']])
                     
-                    if w == 1:
-                        prob += hits[w] >= transfers_count[w] - free_transfers
+                    if w == 1:  
+                    prob += hits[w] >= transfers_count[w] - free_transfers
                     else:
                         prob += hits[w] >= transfers_count[w] - 1
                         
