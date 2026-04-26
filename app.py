@@ -866,6 +866,3 @@ st.error("⚠️ Musíš zadat API klíč! Získáš ho zdarma na https://aistud
                         
                 except Exception as e:
                     st.error(f"❌ Chyba při komunikaci s AI nebo při zpracování dat: {e}")
-Tímto jsme v podstatě **dokončili vývoj kompletní aplikace**! Máš v rukou nástroj, který by se dal klidně prodávat jako prémiová služba. 
-
-Máš pocit, že nám ještě něco chybí, nebo jsi připravený to nasadit naostro a začít drtit svou mini-ligu? 🏆
