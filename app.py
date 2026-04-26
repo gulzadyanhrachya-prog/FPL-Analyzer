@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import pulp
-import json
-import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
@@ -14,12 +12,11 @@ if 'my_team' not in st.session_state:
     st.session_state['my_team'] = []
 if 'bank' not in st.session_state:
     st.session_state['bank'] = 0.0
-if 'nlp_modifiers' not in st.session_state:
-    st.session_state['nlp_modifiers'] = []
 
 # --- 1. DATOVÁ ČÁST ---
 @st.cache_data(ttl=3600)
 def get_current_gw():
+    """Zjistí aktuální nebo poslední odehrané kolo (Gameweek)"""
     url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
     res = requests.get(url).json()
     for event in res['events']:
@@ -69,8 +66,7 @@ def load_fpl_data():
         if len(team_fdr_5gw[team_h]) < 5:
             team_fdr_5gw[team_h].append(diff_h)
             team_fixtures_str[team_h].append(f"{team_short_mapping[team_a]} (H)")
-            team_fixtures_diff[team_h
-].append(diff_h)
+            team_fixtures_diff[team_h].append(diff_h)
             
         if len(team_fdr_5gw[team_a]) < 5:
             team_fdr_5gw[team_a].append(diff_a)
@@ -156,13 +152,6 @@ def get_best_xi(squad_df):
 # Načtení dat
 df = load_fpl_data()
 
-# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
-if st.session_state['nlp_modifiers']:
-    for mod in st.session_state['nlp_modifiers']:
-        idx = df['web_name'] == mod['web_name']
-        df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
-        df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
-
 # --- 2. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
 manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
@@ -196,15 +185,8 @@ all_player_names = sorted(df['unique_name'].tolist())
 valid_team = [name for name in st.session_state['my_team'] if name in all_player_names]
 my_team = st.sidebar.multiselect("Vyber přesně 15 hráčů:", all_player_names, default=valid_team, max_selections=15)
 
-if st.session_state['nlp_modifiers']:
-    st.sidebar.divider()
-    st.sidebar.subheader("🏥 Aktivní AI hlášení z tiskovek")
-    for mod in st.session_state['nlp_modifiers']:
-        if mod['xMins_multiplier'] < 1.0:
-            st.sidebar.error(f"**{mod['web_name']}**: {mod['reason']}")
-
 # --- 3. HLAVNÍ OBSAH ---
-tab1, tab2, tab3 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker", "🧠 AI Analýza tiskovek"])
+tab1, tab2 = st.tabs(["🔄 Optimalizátor přestupů", "📅 Databáze & Fixture Ticker"])
 
 with tab1:
     st.header("Matematický návrh přestupů")
@@ -332,50 +314,3 @@ with tab2:
     })
     
     st.dataframe(styled_df, use_container_width=True, height=600)
-
-with tab3:
-    st.header("🧠 AI Analýza tiskových konferencí (Google Gemini)")
-    st.write("Vlož text z tiskovky. AI z něj extrahuje zranění a automaticky upraví projekce hráčů v celém systému!")
-    
-    api_key = st.text_input("Zadej svůj Google Gemini API klíč (začíná na AIza...):", type="password", help="Získáš ho ZDARMA na aistudio.google.com")
-    news_text = st.text_area("Text z tiskovky (nebo novinky z Twitteru):", height=200, placeholder="Např.: Haaland si poranil hamstring a o víkendu nenastoupí. Foden je unavený a začne na lavičce...")
-    
-    if st.button("🧠 Analyzovat text a upravit projekce", type="primary"):
-        if not news_text:
-            st.warning("Nejprve vlož nějaký text.")
-        else:
-            with st.spinner("AI čte text a hledá zranění..."):
-                try:
-                    if api_key == "":
-                        st.warning("Nebyl zadán API klíč. Používám simulovaná (demo) data pro ukázku...")
-                        demo_json = """
-                        {
-                            "players": [
-                                {"web_name": "Haaland", "xMins_multiplier": 0.0, "reason": "Demo: Zraněný hamstring, nehraje."},
-                                {"web_name": "Foden", "xMins_multiplier": 0.25, "reason": "Demo: Unavený, začne na lavičce."}
-                            ]
-                        }
-                        """
-                        extracted_data = json.loads(demo_json)['players']
-                    else:
-                        genai.configure(api_key=api_key)
-                        
-                        model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
-                        
-                        prompt = """
-                        Jsi expert na Fantasy Premier League. Přečti si text.
-                        Vrať POUZE validní JSON ve formátu:
-                        {"players": [{"web_name": "Jméno", "xMins_multiplier": 0.0, "reason": "Důvod"}]}
-                        xMins_multiplier je 0.0 (nehraje), 0.25 (lavička), 0.75 (střídá), 1.0 (hraje).
-                        """
-                        
-                        response = model.generate_content(f"{prompt}\n\nText k analýze:\n{news_text}")
-
-                        extracted_data = json.loads(response.text)['players']
-                    
-                    st.session_state['nlp_modifiers'] = extracted_data
-                    st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Nastala chyba při komunikaci s AI: {e}")
