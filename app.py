@@ -282,16 +282,21 @@ def fetch_manager_history(manager_id):
     return res.json()
 
 def get_best_xi(squad_df):
-     # ... (konec tvé funkce)
+    # ... (tady končí tvá funkce)
+    captain_points = start_df.loc[start_df['id'] == captain_id, 'projected_1gw_fdr'].values[0]
+    total_xi_points = start_df['projected_1gw_fdr'].sum() + captain_points
+    
     return start_df, bench_df, captain_id, vc_id, total_xi_points
 
-# --- TADY ZAČÍNÁ HLAVNÍ BLOK APLIKACE ---
+# ==========================================
+# TADY ZAČÍNÁ HLAVNÍ BLOK APLIKACE (UI)
+# ==========================================
 if __name__ == "__main__":
-    # Zde je ten vložený kód ze začátku souboru:
     # --- NASTAVENÍ STRÁNKY ---
     st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
     st.title("🤖 Ultimátní FPL AI Manager (Verze 11.0 - Pep Roulette Model)")
 
+    # --- INICIALIZACE PAMĚTI (Session State) ---
     if 'my_team' not in st.session_state:
         st.session_state['my_team'] = []
     if 'bank' not in st.session_state:
