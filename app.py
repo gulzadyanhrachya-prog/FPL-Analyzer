@@ -395,8 +395,7 @@ if simulate_rotation:
     for idx, row in df.iterrows():
         if row['team_name'] in european_teams:
             if row['position'] == 'GK':
-                rot_mult = 
-1.0
+                rot_mult = 1.0
             elif row['position'] == 'DEF':
                 rot_mult = 0.90
             else:
