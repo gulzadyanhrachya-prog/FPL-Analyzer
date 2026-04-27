@@ -304,9 +304,15 @@ if __name__ == "__main__":
     if 'nlp_modifiers' not in st.session_state:
         st.session_state['nlp_modifiers'] = []
 
-                    # Načtení dat
-                    with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
-                        df = load_fpl_data()
+    # Načtení dat
+    with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
+        df = load_fpl_data()
+
+    # --- 3. BOČNÍ PANEL ---
+    st.sidebar.header("📥 Import týmu")
+    manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
+    
+    # ... a zbytek aplikace (všechno musí být odsazené o ty 4 mezery doprava!)
                         
                     squad = squad_df.sort_values(by='projected_1gw_fdr', ascending=False)
                     
