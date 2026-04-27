@@ -8,6 +8,7 @@ import numpy as np
 from scipy.stats import poisson
 import plotly.graph_objects as go
 import google.generativeai as genai
+from supabase import create_client, Client
 
 # --- 1. POKROČILÁ MATEMATIKA (DEEP RESEARCH) ---
 def calc_ema(series, alpha=0.25):
@@ -327,15 +328,28 @@ def get_best_xi(squad_df):
 if __name__ == "__main__":
     # --- NASTAVENÍ STRÁNKY ---
     st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-    st.title("🤖 Ultimátní FPL AI Manager (Verze 11.0 - Pep Roulette Model)")
+    st.title("🤖 Ultimátní FPL AI Manager (Verze 12.0 - Cloud & SaaS Edition)")
+
+    # --- INICIALIZACE SUPABASE ---
+    @st.cache_resource
+    def init_supabase():
+        try:
+            return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+        except Exception as e:
+            return None
+            
+    supabase = init_supabase()
 
     # --- INICIALIZACE PAMĚTI (Session State) ---
     if 'my_team' not in st.session_state:
         st.session_state['my_team'] = []
     if 'bank' not in st.session_state:
-        st.session_state['bank'] = 0.0
+        st.session_state['bank'] = 
+0.0
     if 'nlp_modifiers' not in st.session_state:
         st.session_state['nlp_modifiers'] = []
+    if 'saved_manager_id' not in st.session_state:
+        st.session_state['saved_manager_id'] = ""
 
     # Načtení dat
     with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
@@ -343,21 +357,39 @@ if __name__ == "__main__":
 
     # --- 3. BOČNÍ PANEL ---
     st.sidebar.header("📥 Import týmu")
-    manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
+    manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):", value=st.session_state['saved_manager_id'])
 
     if st.sidebar.button("⬇️ Stáhnout můj tým", type="primary"):
         if manager_id.isdigit():
-            with st.spinner("Stahuji data z FPL..."):
+            with st.spinner("Stahuji data z FPL a synchronizuji s cloudem..."):
                 gw = get_current_gw()
                 fetched_team, fetched_bank, real_gw = fetch_manager_team(manager_id, gw, df)
                 
                 if fetched_team and len(fetched_team) == 15:
                     st.session_state['my_team'] = fetched_team
                     st.session_state['bank'] = fetched_bank
+                    st.session_state['saved_manager_id'] = manager_id
+                    
+                    # --- SUPABASE: Načtení uložených dat uživatele ---
+                    if supabase:
+                        try:
+                            response = supabase.table('fpl_users').select('*').eq('manager_id', int(manager_id)).execute()
+                            if response.data:
+                                # Uživatel existuje, načteme jeho modifikátory
+                                st.session_state['nlp_modifiers'] = response.data[0].get('nlp_modifiers', [])
+                                st.sidebar.success("✅ Tým a uložená AI data úspěšně načtena z cloudu!")
+                            else:
+                                # Nový uživatel, vytvoříme mu prázdný záznam
+                                supabase.table('fpl_users').insert({'manager_id': int(manager_id), 'nlp_modifiers': []}).execute()
+                                st.session_state['nlp_modifiers'] = []
+                                st.sidebar.success("✅ Tým načten a vytvořen nový profil v databázi!")
+                        except Exception as e:
+                            st.sidebar.warning(f"⚠️ Tým načten, ale spojení s databází selhalo: {e}")
+                    else:
+                        st.sidebar.success(f"✅ Tým úspěšně načten z Gameweeku {gw} (Lokální režim)!")
+                        
                     if real_gw < gw:
                         st.sidebar.warning(f"⚠️ Detekován Free Hit v GW{gw}! Načten tvůj permanentní tým z GW{real_gw}.")
-                    else:
-                        st.sidebar.success(f"✅ Tým úspěšně načten z Gameweeku {gw}!")
                 else:
                     st.sidebar.error("❌ Nepodařilo se načíst tým.")
         else:
@@ -833,7 +865,8 @@ if __name__ == "__main__":
 
     with tab5:
         st.header("🚀 Vícekolový plánovač přestupů (Multi-Period)")
-        st.write("Tento model chápe čas. Plánuje sekvenci přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
+        st.write("Tento model chápe čas. Plánuje sekvenci
+ přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
         
         horizon = st.slider("Plánovací horizont (počet kol dopředu):", min_value=2, max_value=5, value=3)
         
@@ -964,8 +997,7 @@ if __name__ == "__main__":
 
             fig_cap = go.Figure()
             fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
-            fig_cap.add_trace(go.
-Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
+            fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
             fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Ceiling'] - top_caps['projected_1gw_fdr'], name='Ceiling (Potenciál)', marker_color='#ff7f0e'))
 
             fig_cap.update_layout(barmode='stack', title="Top 5 kandidátů na kapitána ve tvém týmu", xaxis_title="Hráč", yaxis_title="Body")
@@ -1112,7 +1144,20 @@ Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'],
                         
                         if extracted_data:
                             st.session_state['nlp_modifiers'] = extracted_data
-                            st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny.")
+                            
+                            # --- SUPABASE: Uložení nových dat do cloudu ---
+                            if supabase and manager_id and manager_id.isdigit():
+                                try:
+                                    supabase.table('fpl_users').upsert({
+                                        'manager_id': int(manager_id), 
+                                        'nlp_modifiers': extracted_data
+                                    }).execute()
+                                    st.success("✅ Analýza dokončena! Projekce upraveny a trvale uloženy do databáze.")
+                                except Exception as db_err:
+                                    st.warning(f"⚠️ Data upravena, ale nepodařilo se je uložit do cloudu: {db_err}")
+                            else:
+                                st.success("✅ Analýza dokončena! Projekce hráčů byly upraveny (pouze lokálně).")
+                                
                             st.rerun()
                         else:
                             st.info("AI v textu nenašla žádné relevantní informace o zraněních.")
