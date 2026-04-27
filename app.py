@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 # --- NASTAVENÍ STRÁNKY ---
 st.set_page_config(page_title="FPL AI Manager", page_icon="⚽", layout="wide")
-st.title("🤖 Ultimátní FPL AI Manager (Verze 10.0 - Endgame Rival Tracker)")
+st.title("🤖 Ultimátní FPL AI Manager (Verze 11.0 - Pep Roulette Model)")
 
 # --- INICIALIZACE PAMĚTI (Session State) ---
 if 'my_team' not in st.session_state:
@@ -332,16 +332,6 @@ def get_best_xi(squad_df):
 with st.spinner("Stahuji data a počítám stochastický model formy (EMA + Poisson)..."):
     df = load_fpl_data()
 
-# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
-if st.session_state['nlp_modifiers']:
-    for mod in st.session_state['nlp_modifiers']:
-        idx = df['web_name'] == mod['web_name']
-        df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
-        df.loc[idx, 'model_1gw_fdr'] *= mod['xMins_multiplier']
-        df.loc[idx, 'odds_1gw_pts'] *= mod['xMins_multiplier']
-        for i in range(1, 6):
-            df.loc[idx, f'proj_gw{i}'] *= mod['xMins_multiplier']
-
 # --- 3. BOČNÍ PANEL ---
 st.sidebar.header("📥 Import týmu")
 manager_id = st.sidebar.text_input("Zadej své FPL ID (např. 123456):")
@@ -380,12 +370,52 @@ simulate_bb = (active_chip == "🚀 Bench Boost")
 
 st.sidebar.divider()
 
+# --- NOVINKA: MODEL ROTACE (PEP ROULETTE) ---
+st.sidebar.header("🔄 Model únavy a rotace")
+simulate_rotation = st.sidebar.toggle(
+    "Aktivovat predikci rotace (Evropa)", 
+    value=False, 
+    help="Sníží očekávané minuty (xMins) hráčům z týmů hrajících evropské poháry, zejména záložníkům a útočníkům."
+)
+
+st.sidebar.divider()
+
 st.sidebar.header("🎲 Hybridní Model (Kurzy)")
 odds_weight = st.sidebar.slider("Váha sázkových kurzů v projekci:", min_value=0, max_value=100, value=50, step=10)
 odds_ratio = odds_weight / 100.0
 
+# Aplikace hybridního modelu
 df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * (1.0 - odds_ratio)) + (df['odds_1gw_pts'] * odds_ratio)
 df['proj_gw1'] = df['projected_1gw_fdr']
+
+# --- APLIKACE MODELU ROTACE ---
+european_teams = ['Arsenal', 'Aston Villa', 'Chelsea', 'Liverpool', 'Man City', 'Man Utd', 'Spurs']
+
+if simulate_rotation:
+    for idx, row in df.iterrows():
+        if row['team_name'] in european_teams:
+            if row['position'] == 'GK':
+                rot_mult = 
+1.0
+            elif row['position'] == 'DEF':
+                rot_mult = 0.90
+            else:
+                rot_mult = 0.80 # Pep Roulette zóna pro MID a FWD
+                
+            df.loc[idx, 'projected_5gw_fdr'] *= rot_mult
+            df.loc[idx, 'projected_1gw_fdr'] *= rot_mult
+            for i in range(1, 6):
+                df.loc[idx, f'proj_gw{i}'] *= rot_mult
+
+# --- APLIKACE NLP MODIFIKÁTORŮ Z TISKOVEK ---
+if st.session_state['nlp_modifiers']:
+    for mod in st.session_state['nlp_modifiers']:
+        idx = df['web_name'] == mod['web_name']
+        df.loc[idx, 'projected_5gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'projected_1gw_fdr'] *= mod['xMins_multiplier']
+        df.loc[idx, 'odds_1gw_pts'] *= mod['xMins_multiplier']
+        for i in range(1, 6):
+            df.loc[idx, f'proj_gw{i}'] *= mod['xMins_multiplier']
 
 st.sidebar.divider()
 
@@ -746,11 +776,12 @@ with tab1:
                                     elif row['id'] == vc_id: role = " *(VC)*"
                                     
                                     health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                                    rot_icon = " <span title='Hrozí rotace kvůli pohárům' style='cursor: help;'>🔄</span>" if simulate_rotation and row['team_name'] in european_teams and row['position'] != 'GK' else ""
                                         
                                     st.markdown(f"""
                                     <div style="text-align: center; padding: 10px; background-color: rgba(150, 150, 150, 0.1); border-radius: 10px; border: 1px solid rgba(150, 150, 150, 0.2); margin-bottom: 10px;">
                                         <div style="font-size: 28px;">👕</div>
-                                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{row['web_name']}">{row['web_name']}{role}{health_icon}</div>
+                                        <div style="font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{row['web_name']}">{row['web_name']}{role}{health_icon}{rot_icon}</div>
                                         <div style="font-size: 14px; color: #4CAF50; font-weight: bold;">{row['projected_1gw_fdr']:.1f} b.</div>
                                     </div>
                                     """, unsafe_allow_html=True)
@@ -761,13 +792,14 @@ with tab1:
                     for col, (_, row) in zip(bench_cols, new_bench.iterrows()):
                         with col:
                             health_icon = f" <span title='{row['news']}' style='cursor: help;'>🏥</span>" if row['health_multiplier'] < 1.0 else ""
+                            rot_icon = " <span title='Hrozí rotace kvůli pohárům' style='cursor: help;'>🔄</span>" if simulate_rotation and row['team_name'] in european_teams and row['position'] != 'GK' else ""
                             
                             bg_color = "rgba(44, 186, 0, 0.15)" if simulate_bb else "rgba(255, 99, 71, 0.1)"
                             border_color = "rgba(44, 186, 0, 0.5)" if simulate_bb else "rgba(255, 99, 71, 0.3)"
                             
                             st.markdown(f"""
                             <div style="text-align: center; padding: 8px; background-color: {bg_color}; border-radius: 10px; border: 1px dashed {border_color};">
-                                <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}</div>
+                                <div style="font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['web_name']}{health_icon}{rot_icon}</div>
                                 <div style="font-size: 12px; color: gray;">{row['position']} | {row['projected_1gw_fdr']:.1f} b.</div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -879,7 +911,8 @@ with tab5:
                                 else:
                                     st.caption("Zdarma (v rámci FT)")
                 else:
-                    st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
+                    st.error("Nepodařilo se najít řešení
+. Zkontroluj rozpočet.")
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
