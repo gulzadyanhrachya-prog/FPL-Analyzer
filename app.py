@@ -911,8 +911,7 @@ with tab5:
                                 else:
                                     st.caption("Zdarma (v rámci FT)")
                 else:
-                    st.error("Nepodařilo se najít řešení
-. Zkontroluj rozpočet.")
+                    st.error("Nepodařilo se najít řešení. Zkontroluj rozpočet.")
     else:
         st.info(f"👈 Vyber v levém panelu přesně 15 hráčů.")
 
