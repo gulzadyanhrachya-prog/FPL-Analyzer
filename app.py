@@ -465,8 +465,7 @@ if __name__ == "__main__":
             current_squad_ids = df[df['unique_name'].isin(my_team)]['id'].tolist()
             current_squad_df = df[df['id'].isin(current_squad_ids)]
             
-            c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_s
-quad_df)
+            c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_squad_df)
             team_value = current_squad_df['now_cost'].sum() + bank
             
             st.subheader("📊 Rychlý přehled")
