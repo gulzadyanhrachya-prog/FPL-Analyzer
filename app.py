@@ -344,8 +344,7 @@ if __name__ == "__main__":
     if 'my_team' not in st.session_state:
         st.session_state['my_team'] = []
     if 'bank' not in st.session_state:
-        st.session_state['bank'] = 
-0.0
+        st.session_state['bank'] = 0.0
     if 'nlp_modifiers' not in st.session_state:
         st.session_state['nlp_modifiers'] = []
     if 'saved_manager_id' not in st.session_state:
