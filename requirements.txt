@@ -6,3 +6,4 @@ numpy
 scipy
 plotly
 google-generativeai
+supabase
