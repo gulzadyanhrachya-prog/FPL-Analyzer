@@ -1115,7 +1115,7 @@ if __name__ == "__main__":
                     try:
                         genai.configure(api_key=api_key)
 
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         
                         prompt = f"""
                         Jsi expert na Fantasy Premier League (FPL). Přečti si následující text z tiskové konference nebo zpráv a extrahuj informace o zraněních, rotaci nebo dostupnosti hráčů.
