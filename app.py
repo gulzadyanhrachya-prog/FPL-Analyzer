@@ -245,6 +245,10 @@ def load_fpl_data():
         fdr_mult = 1.0 + (3.0 - df[f'Diff {i+1}']) * 0.2
         df[f'proj_gw{i+1}'] = df['form'] * fdr_mult * df['health_multiplier']
     
+    # --- PŘIDÁNO PRO EMAIL BOTA (Výchozí hybridní model 50/50) ---
+    df['projected_1gw_fdr'] = (df['model_1gw_fdr'] * 0.5) + (df['odds_1gw_pts'] * 0.5)
+    df['proj_gw1'] = df['projected_1gw_fdr']
+    
     return df
 
 def fetch_manager_team(manager_id, current_gw, df):
@@ -461,7 +465,8 @@ if __name__ == "__main__":
             current_squad_ids = df[df['unique_name'].isin(my_team)]['id'].tolist()
             current_squad_df = df[df['id'].isin(current_squad_ids)]
             
-            c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_squad_df)
+            c_start, c_bench, c_cap, c_vc, c_xi_pts = get_best_xi(current_s
+quad_df)
             team_value = current_squad_df['now_cost'].sum() + bank
             
             st.subheader("📊 Rychlý přehled")
@@ -960,7 +965,8 @@ if __name__ == "__main__":
 
             fig_cap = go.Figure()
             fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Floor'], name='Floor (Jistota)', marker_color='#2ca02c'))
-            fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
+            fig_cap.add_trace(go.
+Bar(x=top_caps['web_name'], y=top_caps['projected_1gw_fdr'] - top_caps['Floor'], name='Očekávané body', marker_color='#1f77b4'))
             fig_cap.add_trace(go.Bar(x=top_caps['web_name'], y=top_caps['Ceiling'] - top_caps['projected_1gw_fdr'], name='Ceiling (Potenciál)', marker_color='#ff7f0e'))
 
             fig_cap.update_layout(barmode='stack', title="Top 5 kandidátů na kapitána ve tvém týmu", xaxis_title="Hráč", yaxis_title="Body")
