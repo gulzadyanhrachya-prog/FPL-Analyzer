@@ -941,8 +941,7 @@ if __name__ == "__main__":
                 diff = top_caps.iloc[2]
 
                 with c1:
-                    st.success(f"👑 KAPITÁN (C
-): {cap['web_name']}")
+                    st.success(f"👑 KAPITÁN (C): {cap['web_name']}")
                     st.markdown(f"**Zápas:** {cap['Zápas 1']} | **Projekce:** {cap['projected_1gw_fdr']:.1f} b.")
                     st.progress(min(cap['Goal_Prob']/100.0, 1.0), text=f"Šance na gól: {cap['Goal_Prob']:.1f}%")
 
