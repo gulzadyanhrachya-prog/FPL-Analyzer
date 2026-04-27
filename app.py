@@ -865,8 +865,7 @@ if __name__ == "__main__":
 
     with tab5:
         st.header("🚀 Vícekolový plánovač přestupů (Multi-Period)")
-        st.write("Tento model chápe čas. Plánuje sekvenci
- přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
+        st.write("Tento model chápe čas. Plánuje sekvenci přestupů na několik kol dopředu a matematicky kalkuluje, zda se vyplatí vzít hit (-4 body) pro zisk lepšího hráče.")
         
         horizon = st.slider("Plánovací horizont (počet kol dopředu):", min_value=2, max_value=5, value=3)
         
